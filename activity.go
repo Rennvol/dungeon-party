@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"time"
@@ -225,8 +226,6 @@ func handleBossFight(w http.ResponseWriter, r *http.Request) {
 	switch req.Action {
 	case "start":
 		bossStart(w, p, req.ID)
-	case "attack":
-		bossAttack(w, p)
 	case "potion":
 		bossPotion(w, p)
 	case "flee":
@@ -234,7 +233,8 @@ func handleBossFight(w http.ResponseWriter, r *http.Request) {
 		savePlayerData(p)
 		writeJSON(w, 200, map[string]any{"player": p, "msg": "🏃 Kabur dari pertarungan"})
 	default:
-		writeJSON(w, 400, map[string]string{"err": "aksi gak dikenal"})
+		// attack / power_strike / guard / wind → kontes dadu
+		bossAttack(w, p, req.Action)
 	}
 }
 
@@ -282,7 +282,7 @@ func bossStart(w http.ResponseWriter, p *Player, id string) {
 		writeJSON(w, 400, map[string]string{"err": "❤️ HP di bawah 30% — sembuhkan dulu"})
 		return
 	}
-	p.Data["battle"] = map[string]any{"boss": boss.ID, "bhp": float64(boss.HP)}
+	p.Data["battle"] = map[string]any{"boss": boss.ID, "bhp": float64(boss.HP), "wind": 2.0}
 	savePlayerData(p)
 	writeJSON(w, 200, map[string]any{"player": p,
 		"log": []string{"⚔️ " + boss.Nama + " muncul! Giliranmu — tekan SERANG."}})
@@ -290,7 +290,9 @@ func bossStart(w http.ResponseWriter, p *Player, id string) {
 
 func toFv(v any) float64 { f, _ := v.(float64); return f }
 
-func bossAttack(w http.ResponseWriter, p *Player) {
+// giliran hero: KONTES DADU ala DnD — roll hero vs roll boss, yang lebih besar menang ronde.
+// skill aktif: power_strike (dmg x2), guard (blokir 70%), wind (heal 25%, 2x per battle)
+func bossAttack(w http.ResponseWriter, p *Player, useSkill string) {
 	bt, ok := p.Data["battle"].(map[string]any)
 	if !ok {
 		writeJSON(w, 400, map[string]string{"err": "gak ada pertarungan aktif"})
@@ -304,28 +306,143 @@ func bossAttack(w http.ResponseWriter, p *Player) {
 		return
 	}
 	h := p.Data["hero"].(map[string]any)
-	atk := toFv(h["atk"]) * elemMult(CLASSES[h["class"].(string)].Element, boss.Element)
+	atkBase := toFv(h["atk"]) * elemMult(CLASSES[h["class"].(string)].Element, boss.Element)
 	def := toFv(h["def"])
+	mx := toFv(h["hp_max"])
 
+	cds, _ := bt["cds"].(map[string]any)
+	if cds == nil {
+		cds = map[string]any{}
+	}
+	windLeft := int(toFv(bt["wind"]))
 	logs := []string{}
 
-	// giliran hero: d20
-	roll := rand.Intn(20) + 1
-	bhp := toFv(bt["bhp"])
-	switch {
-	case roll == 20:
-		dmg := atk * 2
-		bhp -= dmg
-		logs = append(logs, "🎲 NAT 20!! CRIT "+itoa(int(dmg))+" dmg 🔥")
-	case roll == 1:
-		logs = append(logs, "🎲 Nat 1... meleset 😅")
+	// --- aksi spesial sebelum kontes dadu ---
+	dmgMul, guardPct, heal := 1.0, 0.0, 0.0
+	switch useSkill {
+	case "", "none":
+	case "power_strike":
+		if skillLv(p, "power_strike") < 1 {
+			writeJSON(w, 400, map[string]string{"err": "belajar dulu di Dojo!"})
+			return
+		}
+		if toFv(cds["ps"]) > 0 {
+			writeJSON(w, 400, map[string]string{"err": "Power Strike cooldown " + itoa(int(toFv(cds["ps"]))) + " giliran lagi"})
+			return
+		}
+		dmgMul = 2.0
+		cds["ps"] = 3.0
+		logs = append(logs, "💪 POWER STRIKE!")
+	case "guard":
+		if skillLv(p, "iron_skin") < 1 {
+			writeJSON(w, 400, map[string]string{"err": "belajar Iron Skin dulu di Dojo!"})
+			return
+		}
+		if toFv(cds["gr"]) > 0 {
+			writeJSON(w, 400, map[string]string{"err": "Guard cooldown " + itoa(int(toFv(cds["gr"]))) + " giliran lagi"})
+			return
+		}
+		guardPct = 0.7
+		cds["gr"] = 3.0
+		logs = append(logs, "🛡️ GUARD — siap menahan serangan")
+	case "wind":
+		if skillLv(p, "vitality") < 1 {
+			writeJSON(w, 400, map[string]string{"err": "belajar Vitality dulu di Dojo!"})
+			return
+		}
+		if windLeft <= 0 {
+			writeJSON(w, 400, map[string]string{"err": "Second Wind habis untuk battle ini"})
+			return
+		}
+		heal = mx * 0.25
+		windLeft--
+		logs = append(logs, "❤️‍🔥 SECOND WIND! +"+itoa(int(heal))+" HP")
+	case "attack":
+		// serangan normal
 	default:
-		dmg := atk * float64(7+roll) / 14
-		bhp -= dmg
-		logs = append(logs, "🎲 "+itoa(roll)+" → hit "+itoa(int(dmg)))
+		writeJSON(w, 400, map[string]string{"err": "skill gak dikenal"})
+		return
 	}
 
-	// menang? — boss scaling anti-farm: kill counter naik, boss berikutnya lebih kuat
+	bhp := toFv(bt["bhp"])
+
+	if heal > 0 {
+		cur := heroHP(p) + heal
+		if cur > mx {
+			cur = mx
+		}
+		h["hp"] = cur
+	}
+
+	// --- KONTES DADU: hero d20 vs boss d20 ---
+	hr := rand.Intn(20) + 1
+	br := rand.Intn(20) + 1
+
+	if hr == 20 || (hr > br && hr != 1) {
+		// hero menang ronde
+		margin := float64(hr-br) / 18.0 // 0..1
+		dmg := atkBase * dmgMul * (0.7 + 0.6*margin)
+		if hr == 20 {
+			dmg = atkBase * dmgMul * 2
+			logs = append(logs, fmt.Sprintf("🎲 NAT 20!! (boss %d) CRIT %d dmg 🔥", br, int(dmg)))
+		} else {
+			logs = append(logs, fmt.Sprintf("🎲 kamu %d vs boss %d → HIT %d", hr, br, int(dmg)))
+		}
+		bhp -= dmg
+	} else if br == 20 || hr < br {
+		// boss menang ronde
+		cur := heroHP(p)
+		dmgIn := (float64(boss.ATK)*2 - def) * (1 - guardPct)
+		if dmgIn < 2 {
+			dmgIn = 2
+		}
+		if br == 20 {
+			dmgIn *= 2
+			logs = append(logs, fmt.Sprintf("🎲 kamu %d vs BOSS NAT 20!! CRIT -%d HP 💀", hr, int(dmgIn)))
+		} else {
+			logs = append(logs, fmt.Sprintf("🎲 kamu %d vs boss %d → kena hit -%d HP", hr, br, int(dmgIn)))
+		}
+		cur -= dmgIn
+		if guardPct > 0 {
+			logs = append(logs, "🛡️ Guard menahan 70% serangan!")
+		}
+		if cur < 0 {
+			cur = 0
+		}
+		h["hp"] = cur
+	} else {
+		logs = append(logs, fmt.Sprintf("🎲 seri %d-%d — saling menghindar", hr, br))
+	}
+
+	// auto-potion saat kritis
+	if hpNow := heroHP(p); hpNow > 0 && hpNow <= mx*0.3 && heal == 0 {
+		if takeStackInv(p, "potion_kecil", 1) {
+			hpN := heroHP(p) + float64(ITEMS["potion_kecil"].HP)
+			if hpN > mx {
+				hpN = mx
+			}
+			h["hp"] = hpN
+			logs = append(logs, "🧪 AUTO-POTION! +30 HP")
+		} else if takeStackInv(p, "potion_besar", 1) {
+			hpN := heroHP(p) + float64(ITEMS["potion_besar"].HP)
+			if hpN > mx {
+				hpN = mx
+			}
+			h["hp"] = hpN
+			logs = append(logs, "🧴 AUTO-POTION BESAR! +80 HP")
+		}
+	}
+
+	// tick cooldown
+	for k, v := range cds {
+		f := toFv(v)
+		if f > 0 {
+			cds[k] = f - 1
+		}
+	}
+	bt["cds"], bt["wind"] = cds, float64(windLeft)
+
+	// menang?
 	if bhp <= 0 {
 		k := bossKills(p, boss.ID)
 		bumpKill(p, boss.ID)
@@ -341,36 +458,9 @@ func bossAttack(w http.ResponseWriter, p *Player) {
 	}
 	bt["bhp"] = bhp
 
-	// giliran boss
-	mx, _ := toF(h["hp_max"])
-	cur := heroHP(p)
-	dmgIn := float64(boss.ATK) - def/2
-	if dmgIn < 2 {
-		dmgIn = 2
-	}
-	cur -= dmgIn
-	logs = append(logs, "👹 "+boss.Nama+" menyerang! -"+itoa(int(dmgIn))+" HP")
-
-	// auto-potion saat kritis kalau ada stok (biar gak mati tanpa sempat klik)
-	if cur > 0 && cur <= mx*0.3 {
-		if takeStackInv(p, "potion_kecil", 1) {
-			cur += float64(ITEMS["potion_kecil"].HP)
-			logs = append(logs, "🧪 AUTO-POTION! +30 HP")
-		} else if takeStackInv(p, "potion_besar", 1) {
-			cur += float64(ITEMS["potion_besar"].HP)
-			logs = append(logs, "🧴 AUTO-POTION BESAR! +80 HP")
-		} else {
-			logs = append(logs, "⚠️ Gak ada potion cadangan!")
-		}
-	}
-	if cur > mx {
-		cur = mx
-	}
-	h["hp"] = cur
-
 	// kalah?
-	if cur <= 0 {
-		h["hp"] = 1
+	if heroHP(p) <= 0 {
+		h["hp"] = 1.0
 		p.Data["battle"] = nil
 		p.Gold -= p.Gold / 20
 		savePlayerData(p)

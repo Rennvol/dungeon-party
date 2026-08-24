@@ -92,9 +92,16 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
       <div class="dname" id="btNama">—</div>
       <div class="barwrap hp"><div id="btHp"></div><span id="btHpTxt"></span></div>
       <div style="margin-top:8px;max-height:140px;overflow-y:auto;font-size:.8rem;color:#aaa;line-height:1.7;background:#0d0d14;border-radius:8px;padding:8px" id="btLog"></div>
-      <button style="margin-top:8px" id="btnAtk" onclick="bAttack()">⚔️ SERANG (d20)</button>
-      <button class="ghost" style="margin-top:8px" onclick="bPotion()">🧪 Potion</button>
-      <button class="ghost" style="margin-top:8px;color:#e67e22" onclick="bFlee()">🏃 Kabur</button>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button id="btnAtk" onclick="bAct('attack')">🎲 Serang (d20 vs d20)</button>
+        <button class="ghost" id="btnPS" onclick="bAct('power_strike')">💪 Power Strike<br><small id="cd_ps"></small></button>
+        <button class="ghost" id="btnGR" onclick="bAct('guard')">🛡️ Guard<br><small id="cd_gr"></small></button>
+        <button class="ghost" id="btnWD" onclick="bAct('wind')">❤️‍🔥 Second Wind<br><small id="cd_wd"></small></button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="ghost" onclick="bPotion()">🧪 Potion</button>
+        <button class="ghost" style="color:#e67e22" onclick="bFlee()">🏃 Kabur</button>
+      </div>
     </div>
     <div id="bossList"></div>
   </div>
@@ -427,6 +434,7 @@ async function loadBosses(){
     $('battleBox').style.display='block';
     $('btNama').textContent = b?b.nama:'Boss';
     updateBtHp(S.data.battle.bhp, b?b.hp:1);
+    updSkillBtns();
     $('bossList').innerHTML='';
     return;
   }
@@ -451,13 +459,13 @@ async function bStart(id){
   if(r.err) return toast('❌ '+r.err);
   S=r.player; render(); toast('⚔️ Pertarungan dimulai!'); loadBosses();
 }
-async function bAttack(){
+async function bAct(skill){
   $('btnAtk').disabled=true; setTimeout(()=>$('btnAtk').disabled=false,600);
-  const r=await api('boss',{action:'attack'});
+  const r=await api('boss',{action:skill});
   if(r.err){ toast('❌ '+r.err); return; }
   S=r.player; render();
   for(const l of r.log) btLog(l);
-  updateBattleState();
+  updateBattleState(); updSkillBtns();
   if(r.win!==undefined){
     BOSS_KILLS_STALE = true;
     setTimeout(()=>{
@@ -465,6 +473,20 @@ async function bAttack(){
       toast(r.win?'🏆 MENANG!':'💀 Kalah...');
     },1200);
   }
+}
+function updSkillBtns(){
+  const bt=S.data.battle; if(!bt) return;
+  const cds=bt.cds||{};
+  const sk=S.data.skills||{};
+  const set=(id,cd,has)=>{ 
+    const btn=$('btn'+id); if(!btn) return;
+    const off = !has || cd>0 || (id==='WD'&&(bt.wind||0)<=0);
+    btn.disabled=off; btn.style.opacity=off?.4:1;
+    $('cd_'+id.toLowerCase()).textContent = !has?'(belajar di Dojo)':(id==='WD'?`(${bt.wind||0}x)`:(cd>0?`cd ${cd}`:'siap'));
+  };
+  set('PS',cds.ps||0,(sk.power_strike||0)>0);
+  set('GR',cds.gr||0,(sk.iron_skin||0)>0);
+  set('WD',0,(sk.vitality||0)>0);
 }
 function updateBattleState(){
   if(!S.data.battle) return;
