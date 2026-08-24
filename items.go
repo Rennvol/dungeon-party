@@ -216,7 +216,8 @@ func recomputeStats(p *Player) {
 	def := lvl + int(skl("iron_skin", 0))
 
 	upg, _ := p.Data["upg"].(map[string]any)
-	for slot, uidV := range h["equip"].(map[string]any) {
+	eqMap, _ := h["equip"].(map[string]any)
+	for slot, uidV := range eqMap {
 		uid, _ := uidV.(string)
 		var it *Item
 		var lv int
