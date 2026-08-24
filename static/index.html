@@ -88,7 +88,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
 <script>
 let token = localStorage.getItem('dp_token');
 let S = null;          // state player dari server
-let gold = 0, xpGain = 0;
+let gold = 0, xpGain = 0, ITEMS = null;
 const $ = id => document.getElementById(id);
 const api = (path, body) => fetch('/api/'+path, {
   method:'POST', headers:{'Content-Type':'application/json', Authorization: token||''},
@@ -114,7 +114,8 @@ async function afterAuth(r){
 async function loadState(){
   const r = await fetch('/api/state',{headers:{Authorization:token}}).then(r=>r.json());
   if(r.err) return logout();
-  S = r; gold = r.gold;
+  S = r; S._syncedGold = r.gold; gold = r.gold;
+  if(!ITEMS) ITEMS = await fetch('/api/items').then(x=>x.json()).then(l=>{const m={};l.forEach(i=>m[i.id]=i);return m;});
   $('auth').style.display='none'; $('game').style.display='block';
   $('pname').textContent='⚔️ '+r.username; render();
 }
@@ -178,23 +179,71 @@ function renderBag(){
   const used = bagUsed(inv), slots = bagSlots();
   $('bagCount').textContent = `${used}/${slots}`;
   const rows = [];
-  for(const [id,q] of Object.entries(inv.stack||{}))
-    rows.push(`<span style="display:inline-block;background:#1c1c2a;border-radius:6px;padding:3px 10px;margin:2px">${ITEM_NAME[id]||id} ×${q}</span>`);
-  for(const e of (inv.equip||[]))
-    rows.push(`<span style="display:inline-block;background:#2a1f33;border-radius:6px;padding:3px 10px;margin:2px;border:1px solid #4a3a5a">${ITEM_NAME[e.id]||e.id}</span>`);
-  $('bagItems').innerHTML = rows.join('') || '<i style="color:#555">Tas kosong — beli potion atau farming buat isi tas</i>';
-  // tombol upgrade: harga ×1.6 per level
+  const RCOL = {common:'#9aa0a6', rare:'#4fc3f7', epic:'#ba68c8', legendary:'#ffb300'};
+  const CAT = ITEMS ? {} : null;
+  for(const [id,q] of Object.entries(inv.stack||{})){
+    const it = ITEMS?.[id]||{};
+    rows.push(`<span style="display:inline-flex;align-items:center;gap:6px;background:#1c1c2a;border-radius:6px;padding:3px 10px;margin:2px">
+      ${it.nama||id} ×${q}
+      <a onclick="sellStack('${id}',1)" style="cursor:pointer;color:#e67e22;font-size:.75rem">jual</a></span>`);
+  }
+  for(const e of (inv.equip||[])){
+    const it = ITEMS?.[e.id]||{};
+    if(!CAT_SKIP(e)) {}
+    const lv = (S.data.upg||{})[e.uid]||0;
+    const eqd = isEquipped(e.uid);
+    rows.push(`<span style="display:inline-flex;align-items:center;gap:6px;background:#221a2e;border:1px solid #${eqd?'c9a227':'4a3a5a'};border-radius:6px;padding:3px 10px;margin:2px">
+      <span style="color:${RCOL[it.rarity]||'#aaa'}">${it.nama||e.id}${lv?` +${lv}`:''}</span>
+      ${it.class_req&&!it.class_req.includes(S.data.hero?.class)?'🔒':''}
+      ${eqd?'<b style="color:#c9a227">[dipakai]</b>':`<a onclick="equipItem('${e.uid}')" style="cursor:pointer;color:#2ecc71;font-size:.75rem">pakai</a>`}
+      <a onclick="upItem('${e.uid}')" style="cursor:pointer;color:#f5c542;font-size:.75rem">🔨</a>
+      ${eqd?'':`<a onclick="sellEquip('${e.uid}')" style="cursor:pointer;color:#e67e22;font-size:.75rem">jual</a>`}
+    </span>`);
+  }
+  $('bagItems').innerHTML = rows.join('') || '<i style="color:#555">Tas kosong — farming buat dapet loot!</i>';
+  // tombol upgrade tas
   const lv = S.data.bag_lv||0;
   let cost = 200; for(let i=0;i<lv;i++) cost = cost*8/5|0;
   $('bagUpBtn').textContent = `+5 slot (${cost.toLocaleString('id')}g)`;
   $('bagUpBtn').disabled = gold < cost;
   $('bagUpBtn').style.opacity = gold < cost ? .45 : 1;
 }
+function CAT_SKIP(e){ return false; }
+function isEquipped(uid){
+  const eq = S.data.hero?.equip||{};
+  return Object.values(eq).includes(uid);
+}
+
+async function equipItem(uid){
+  const r = await api('equip',{uid});
+  if(r.err) return toast(r.err);
+  applyPlayer(r.player); toast('⚔️ Equipment terpasang!');
+}
+async function sellStack(id, qty){
+  const r = await api('sell',{stack_id:id, qty});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast('💰 Terjual');
+}
+async function sellEquip(uid){
+  const r = await api('sell',{uid});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast('💰 Equipment terjual');
+}
+async function upItem(uid){
+  const useProt = (S.data.inv?.stack?.prot_stone||0) > 0 && confirm('Pakai Protection Stone biar gak turun kalau gagal?');
+  const r = await api('upgrade',{uid, use_prot:useProt});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast(r.msg);
+}
+function applyPlayer(p){ 
+  const heroLvl = S?.data?.hero?.lvl;
+  S = p; S._syncedGold = p.gold; gold = p.gold; xpGain = 0; render(); 
+}
 
 async function upgradeBag(){
   const r = await api('bag',{action:'upgrade'});
   if(r.err) return toast('❌ '+r.err);
-  S = r; gold = r.gold;
+  applyPlayer(r);
   toast(`🎒 Tas di-upgrade! Sekarang ${bagSlots()} slot`); render();
 }
 const ITEM_NAME = {'potion_kecil':'🧪 Potion HP Kecil','potion_besar':'🧴 Potion HP Besar'};
@@ -257,8 +306,8 @@ async function saveNow(){
   if(gd === 0 && xd === 0){ render(); return; }   // gak ada delta, jangan save
   const r = await api('farm',{gold_delta: gd, xp_delta: xd});
   if(!r.err){
-    const h = S.data.hero;
-    S = r; S._syncedGold = r.gold; gold = r.gold; xpGain = 0;
+    S = r.player; S._syncedGold = r.player.gold; gold = r.player.gold; xpGain = 0;
+    for(const d of (r.drops||[])) toast('🎁 Drop: '+(ITEMS[d]?.nama||d)+'!');
   }
   render();
 }
@@ -271,7 +320,7 @@ window.addEventListener('beforeunload', ()=>{ if(S && S.data && S.data.hero) sav
 async function buy(item){
   const r = await api('shop',{item});
   if(r.err) return toast('❌ '+r.err);
-  S = r; gold = r.gold; render(); toast('🛒 '+(ITEM_NAME[item]||item)+' dibeli ✅');
+  applyPlayer(r); toast('🛒 '+(ITEMS[item]?.nama||item)+' dibeli ✅');
 }
 
 if(token) loadState();

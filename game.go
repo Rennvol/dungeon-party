@@ -133,6 +133,7 @@ func savePlayerData(p *Player) {
 
 // POST /api/farm {gold_delta, xp_delta} — client kirim hasil farm 30 detik.
 // Server clamp: max gold_delta = 3 * elapsed sejak last_farm (anti cheat), max 8 jam.
+// loot roll tiap save (30s) — drop chance 25% per window
 func handleFarm(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
 	var req struct {
@@ -186,8 +187,38 @@ func handleFarm(w http.ResponseWriter, r *http.Request) {
 		gainXP(p, xd)
 	}
 	p.Data["farm_at"] = now
+
+	// LOOT ROLL fase 2: 25% chance dapat 1 item dari loot table per window
+	// equip → slot terpisah dgn uid; material/potion → stack
+	drops := []string{}
+	if rand.Intn(100) < 25 {
+		id := rollLoot()
+		if id != "" {
+			if isEquipID(id) {
+				if bagHasRoom(p) {
+					invE := normInv(p.Data["inv"])
+					addItemSrv(invE, id, 1)
+					p.Data["inv"] = invE
+					drops = append(drops, id)
+				}
+			} else if addItemSrvInv(p, id, 1) {
+				drops = append(drops, id)
+			}
+		}
+	}
 	savePlayerData(p)
-	writeJSON(w, 200, p)
+	writeJSON(w, 200, map[string]any{"player": p, "drops": drops})
+}
+
+// addItemSrvInv: validasi tas + add; return false kalau tas penuh
+func addItemSrvInv(p *Player, id string, qty int) bool {
+	if !bagHasRoom(p) {
+		return false
+	}
+	inv := normInv(p.Data["inv"])
+	addItemSrv(inv, id, qty)
+	p.Data["inv"] = inv
+	return true
 }
 
 func toF(v any) (float64, bool) {

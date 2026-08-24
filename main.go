@@ -56,6 +56,10 @@ func main() {
 	mux.HandleFunc("/api/shop", auth(handleShop))
 	mux.HandleFunc("/api/farm", auth(handleFarm))
 	mux.HandleFunc("/api/bag", auth(handleBag))
+	mux.HandleFunc("/api/items", handleItems)
+	mux.HandleFunc("/api/equip", auth(handleEquip))
+	mux.HandleFunc("/api/upgrade", auth(handleUpgrade))
+	mux.HandleFunc("/api/sell", auth(handleSell))
 
 	addr := ":30512"
 	log.Println("Dungeon Party listening on", addr)
