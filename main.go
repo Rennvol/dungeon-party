@@ -172,6 +172,7 @@ func loadPlayer(pid int64) (*Player, error) {
 	if len(data) > 0 {
 		json.Unmarshal(data, &p.Data)
 	}
+	applyRegen(p) // HP regen pasca-pertarungan (1%/3s)
 	return p, nil
 }
 

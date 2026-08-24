@@ -1,9 +1,7 @@
 package main
 
-// FASE 2.5 — pemisahan aktivitas (desain user):
-//   🌿 KEBUN  = farm GOLD + herbal (tanaman tumbuh real-time)
-//   ⚔️ DUNGEON = farm XP (+ drop kecil), turn-based ringan
-//   👑 BOSS   = dadu d20, pakai potion & skill, element weakness
+// FASE 2.6 — boss turn-based (d20 per serangan), HP persisten + regen,
+// potion bisa dipakai kapan pun, dive dungeon nguras HP dikit.
 
 import (
 	"encoding/json"
@@ -12,15 +10,68 @@ import (
 	"time"
 )
 
+// takeStackInv pindah ke sini (dipake activity + boss)
+func takeStackInv(p *Player, id string, n int) bool {
+	inv := normInv(p.Data["inv"])
+	st, _ := inv["stack"].(map[string]any)
+	f, ok := st[id].(float64)
+	if !ok || f < float64(n) {
+		return false
+	}
+	st[id] = f - float64(n)
+	p.Data["inv"] = inv
+	return true
+}
+
+// ---------- REGEN HP ----------
+// 1% hp_max tiap 3 detik di luar pertarungan.
+func applyRegen(p *Player) {
+	hm, ok := p.Data["hero"].(map[string]any)
+	if !ok || hm == nil {
+		return
+	}
+	mx, _ := toF(hm["hp_max"])
+	if mx <= 0 {
+		return
+	}
+	cur, ok := toF(hm["hp"])
+	if !ok || cur <= 0 {
+		hm["hp"] = mx
+		p.Data["hp_at"] = float64(time.Now().Unix())
+		return
+	}
+	now := time.Now().Unix()
+	t0, _ := toF(p.Data["hp_at"])
+	if t0 == 0 {
+		p.Data["hp_at"] = float64(now)
+		return
+	}
+	el := now - int64(t0)
+	if el < 0 {
+		el = 0
+	}
+	if el >= 3 && cur < mx {
+		cur += mx * 0.01 * float64(el/3)
+		if cur > mx {
+			cur = mx
+		}
+		hm["hp"] = cur
+	}
+	p.Data["hp_at"] = float64(now)
+}
+
+func heroHP(p *Player) float64 {
+	h := p.Data["hero"].(map[string]any)
+	f, _ := toF(h["hp"])
+	return f
+}
+
 // ---------- KEBUN (gold) ----------
 
-// state kebun di data.garden: {lv, planted_at}
-// gold menumpuk = elapsed * rate; herbal tiap 45s max cap 8 jam.
 func handleGarden(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
 	var req struct {
-		Action  string `json:"action"` // harvest | upgrade
-		Collect bool   `json:"collect"`
+		Action string `json:"action"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
@@ -41,22 +92,24 @@ func handleGarden(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"err": "gold kurang (butuh " + itoa(int(cost)) + ")"})
 			return
 		}
-		harvestGarden(p) // auto-panen sisa sebelum upgrade
+		harvestGarden(p)
 		p.Gold -= cost
 		p.Data["garden_lv"] = float64(lv + 1)
 		savePlayerData(p)
 		writeJSON(w, 200, map[string]any{"player": p, "msg": "🌿 Kebun lv." + itoa(lv+1)})
-	default: // collect/preview
+	case "collect":
 		gold, herbs := gardenPending(p)
-		if req.Collect || req.Action == "collect" {
-			p.Gold += int64(gold)
-			addItemSrvInv(p, "herbal", herbs)
-			resetGardenClock(p)
-			savePlayerData(p)
-			writeJSON(w, 200, map[string]any{"player": p,
-				"msg": "🌿 Panen: " + itoa(gold) + " gold" + (map[bool]string{true: " + " + itoa(herbs) + " 🌿 Herbal"})[herbs > 0]})
-			return
+		p.Gold += int64(gold)
+		addItemSrvInv(p, "herbal", herbs)
+		resetGardenClock(p)
+		savePlayerData(p)
+		msg := "🌿 Panen: " + itoa(gold) + " gold"
+		if herbs > 0 {
+			msg += " +" + itoa(herbs) + " 🌿 Herbal"
 		}
+		writeJSON(w, 200, map[string]any{"player": p, "msg": msg})
+	default:
+		gold, herbs := gardenPending(p)
 		writeJSON(w, 200, map[string]any{"player": p, "gold": gold, "herbs": herbs})
 	}
 }
@@ -94,10 +147,8 @@ func harvestGarden(p *Player) {
 
 func resetGardenClock(p *Player) { p.Data["garden_at"] = float64(time.Now().Unix()) }
 
-// ---------- DUNGEON (XP) ----------
+// ---------- DUNGEON (XP) — dive nguras HP 8% ----------
 
-// POST /api/dungeon {dive:"gua_goblin"} — dive 1x per 30s window, hasil instan:
-// XP sesuai power gap + chance drop kecil. Ini pengganti tick lama.
 func handleDungeon(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
 	var req struct{ Dive string }
@@ -113,45 +164,59 @@ func handleDungeon(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"err": "dungeon gak ada"})
 		return
 	}
-	// cooldown antar dive
 	now := time.Now().Unix()
 	lastD, _ := p.Data["last_dive"].(float64)
 	if now-int64(lastD) < 25 {
 		writeJSON(w, 429, map[string]string{"err": "party masih istirahat (" + itoa(int(25-(now-int64(lastD)))) + "s)"})
 		return
 	}
+	h := p.Data["hero"].(map[string]any)
+	mx, _ := toF(h["hp_max"])
+	cur := heroHP(p)
+	if cur < mx*0.15 {
+		writeJSON(w, 400, map[string]string{"err": "❤️ HP terlalu rendah — pakai potion atau istirahat dulu"})
+		return
+	}
+	// dive nguras HP
+	h["hp"] = cur - mx*0.08
 	p.Data["last_dive"] = float64(now)
 
-	xp := d.XP * (1 + rand.Intn(3)) // 2-6 xp dasar
+	xp := d.XP * (1 + rand.Intn(3))
 	gainXP(p, xp)
 	msg := "⚔️ Dive " + d.Nama + ": +" + itoa(xp) + " XP"
 
 	drops := []string{}
 	if rand.Intn(100) < 15 {
 		id := rollLoot()
-		if id != "" && addItemSrvInv(p, id, 1) {
-			drops = append(drops, id)
-			msg += ", drop " + ITEMS[id].Nama
+		if id != "" {
+			if isEquipID(id) {
+				if bagHasRoom(p) {
+					invE := normInv(p.Data["inv"])
+					addItemSrv(invE, id, 1)
+					p.Data["inv"] = invE
+					drops = append(drops, id)
+				}
+			} else if addItemSrvInv(p, id, 1) {
+				drops = append(drops, id)
+			}
 		}
 	}
 	savePlayerData(p)
 	writeJSON(w, 200, map[string]any{"player": p, "msg": msg, "drops": drops})
 }
 
-// ---------- BOSS (dadu d20 + potion) ----------
+// ---------- BOSS — TURN-BASED, state tersimpan ----------
 
-// GET /api/boss — list boss
 func handleBossList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, BOSSES)
 }
 
-// POST /api/boss {id, potion:"potion_besar"} — fight turn-based singkat:
-// server simulasi: hero vs boss, roll d20 tiap giliran, crit 20, miss 1.
+// POST /api/boss {action:"start"|"attack"|"potion"|"flee", id}
 func handleBossFight(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
 	var req struct {
+		Action string `json:"action"`
 		ID     string `json:"id"`
-		Potion string `json:"potion"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
@@ -160,109 +225,170 @@ func handleBossFight(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"err": "belum siap"})
 		return
 	}
-	var boss *Boss
+
+	switch req.Action {
+	case "start":
+		bossStart(w, p, req.ID)
+	case "attack":
+		bossAttack(w, p)
+	case "potion":
+		bossPotion(w, p)
+	case "flee":
+		p.Data["battle"] = nil
+		savePlayerData(p)
+		writeJSON(w, 200, map[string]any{"player": p, "msg": "🏃 Kabur dari pertarungan"})
+	default:
+		writeJSON(w, 400, map[string]string{"err": "aksi gak dikenal"})
+	}
+}
+
+func findBoss(id string) *Boss {
 	for i := range BOSSES {
-		if BOSSES[i].ID == req.ID {
-			boss = &BOSSES[i]
+		if BOSSES[i].ID == id {
+			return &BOSSES[i]
 		}
 	}
+	return nil
+}
+
+func bossStart(w http.ResponseWriter, p *Player, id string) {
+	if _, busy := p.Data["battle"].(map[string]any); busy {
+		writeJSON(w, 400, map[string]string{"err": "masih ada pertarungan aktif"})
+		return
+	}
+	boss := findBoss(id)
 	if boss == nil {
 		writeJSON(w, 404, map[string]string{"err": "boss gak ada"})
 		return
 	}
 	h := p.Data["hero"].(map[string]any)
-	lvl := int(h["lvl"].(float64))
+	lvl := int(toFv(h["lvl"]))
 	if lvl < boss.MinLvl {
 		writeJSON(w, 400, map[string]string{"err": "butuh level " + itoa(boss.MinLvl)})
 		return
 	}
-	// potion wajib dibawa? opsional tapi disarankan — heal otomatis saat HP kritis
-	maxHP := int(h["hp_max"].(float64))
-	atk := int(h["atk"].(float64))
-	def := lvl
-	hp := maxHP
-
-	// elemen hero vs boss
-	heroElem := CLASSES[h["class"].(string)].Element
-	mult := elemMult(heroElem, boss.Element)
-	if mult > 1 {
-		atk = atk * 3 / 2
-	} else if mult < 1 {
-		atk = atk * 3 / 4
+	if heroHP(p) < toFv(h["hp_max"])*0.3 {
+		writeJSON(w, 400, map[string]string{"err": "❤️ HP di bawah 30% — sembuhkan dulu"})
+		return
 	}
+	p.Data["battle"] = map[string]any{"boss": boss.ID, "bhp": float64(boss.HP)}
+	savePlayerData(p)
+	writeJSON(w, 200, map[string]any{"player": p,
+		"log": []string{"⚔️ " + boss.Nama + " muncul! Giliranmu — tekan SERANG."}})
+}
 
-	// potion pre-fight: otomatis dipakai dari tas saat HP <= 30%
-	usePotion := func() {
-		for hp*10 <= maxHP*3 {
-			if takeStackInv(p, "potion_kecil", 1) {
-				hp += ITEMS["potion_kecil"].HP
-				continue
-			}
-			if takeStackInv(p, "potion_besar", 1) {
-				hp += ITEMS["potion_besar"].HP
-				continue
-			}
-			break
-		}
-		if hp > maxHP {
-			hp = maxHP
-		}
+func toFv(v any) float64 { f, _ := v.(float64); return f }
+
+func bossAttack(w http.ResponseWriter, p *Player) {
+	bt, ok := p.Data["battle"].(map[string]any)
+	if !ok {
+		writeJSON(w, 400, map[string]string{"err": "gak ada pertarungan aktif"})
+		return
 	}
+	boss := findBoss(bt["boss"].(string))
+	if boss == nil {
+		p.Data["battle"] = nil
+		savePlayerData(p)
+		writeJSON(w, 400, map[string]string{"err": "data boss rusak, battle dibatalkan"})
+		return
+	}
+	h := p.Data["hero"].(map[string]any)
+	atk := toFv(h["atk"]) * elemMult(CLASSES[h["class"].(string)].Element, boss.Element)
+	def := toFv(h["def"])
 
 	logs := []string{}
-	bossHP := boss.HP
-	turn := 0
-	for bossHP > 0 && hp > 0 && turn < 50 {
-		turn++
-		// hero attack — d20
-		roll := rand.Intn(20) + 1
-		switch {
-		case roll == 20:
-			dmg := atk * 2
-			bossHP -= dmg
-			logs = append(logs, "🎲 NAT 20! CRIT "+itoa(dmg)+" dmg!")
-		case roll == 1:
-			logs = append(logs, "🎲 Nat 1... meleset.")
-		default:
-			dmg := atk * (7 + roll) / 14 // skala roll
-			bossHP -= dmg
-			logs = append(logs, "🎲 "+itoa(roll)+" → hit "+itoa(dmg))
-		}
-		if bossHP <= 0 {
-			break
-		}
-		// boss attack
-		hp -= boss.ATK - def/2
-		if hp < 0 {
-			hp = 0
-		}
-		usePotion()
-		logs = append(logs, "👹 Boss hit! HP kamu "+itoa(hp)+"/"+itoa(maxHP))
+
+	// giliran hero: d20
+	roll := rand.Intn(20) + 1
+	bhp := toFv(bt["bhp"])
+	switch {
+	case roll == 20:
+		dmg := atk * 2
+		bhp -= dmg
+		logs = append(logs, "🎲 NAT 20!! CRIT "+itoa(int(dmg))+" dmg 🔥")
+	case roll == 1:
+		logs = append(logs, "🎲 Nat 1... meleset 😅")
+	default:
+		dmg := atk * float64(7+roll) / 14
+		bhp -= dmg
+		logs = append(logs, "🎲 "+itoa(roll)+" → hit "+itoa(int(dmg)))
 	}
 
-	if bossHP <= 0 {
+	// menang?
+	if bhp <= 0 {
+		p.Data["battle"] = nil
 		p.Gold += boss.GoldWin
 		gainXP(p, boss.XPWin)
 		savePlayerData(p)
-		writeJSON(w, 200, map[string]any{"win": true, "logs": logs, "player": p,
-			"msg": "🏆 " + boss.Nama + " dikalahkan! +" + itoa(int(boss.GoldWin)) + "g +" + itoa(boss.XPWin) + "xp"})
+		logs = append(logs, "🏆 "+boss.Nama+" DIKALAHKAN! +"+itoa(int(boss.GoldWin))+"g +"+itoa(boss.XPWin)+"xp")
+		writeJSON(w, 200, map[string]any{"player": p, "log": logs, "win": true})
 		return
 	}
-	// kalah: tetap simpen (hp reset), gold penalty kecil
-	p.Gold -= p.Gold / 20
+	bt["bhp"] = bhp
+
+	// giliran boss
+	mx, _ := toF(h["hp_max"])
+	cur := heroHP(p)
+	dmgIn := float64(boss.ATK) - def/2
+	if dmgIn < 2 {
+		dmgIn = 2
+	}
+	cur -= dmgIn
+	logs = append(logs, "👹 "+boss.Nama+" menyerang! -"+itoa(int(dmgIn))+" HP")
+
+	// auto-potion saat kritis kalau ada stok (biar gak mati tanpa sempat klik)
+	if cur > 0 && cur <= mx*0.3 {
+		if takeStackInv(p, "potion_kecil", 1) {
+			cur += float64(ITEMS["potion_kecil"].HP)
+			logs = append(logs, "🧪 AUTO-POTION! +30 HP")
+		} else if takeStackInv(p, "potion_besar", 1) {
+			cur += float64(ITEMS["potion_besar"].HP)
+			logs = append(logs, "🧴 AUTO-POTION BESAR! +80 HP")
+		} else {
+			logs = append(logs, "⚠️ Gak ada potion cadangan!")
+		}
+	}
+	if cur > mx {
+		cur = mx
+	}
+	h["hp"] = cur
+
+	// kalah?
+	if cur <= 0 {
+		h["hp"] = 1
+		p.Data["battle"] = nil
+		p.Gold -= p.Gold / 20
+		savePlayerData(p)
+		logs = append(logs, "💀 KAMU TUMBANG... -5% gold, coba lagi!")
+		writeJSON(w, 200, map[string]any{"player": p, "log": logs, "win": false})
+		return
+	}
+
 	savePlayerData(p)
-	writeJSON(w, 200, map[string]any{"win": false, "logs": logs, "player": p,
-		"msg": "💀 Kalah... coba lagi nanti (-5% gold)"})
+	writeJSON(w, 200, map[string]any{"player": p, "log": logs})
 }
 
-func takeStackInv(p *Player, id string, n int) bool {
-	inv := normInv(p.Data["inv"])
-	st, _ := inv["stack"].(map[string]any)
-	f, ok := st[id].(float64)
-	if !ok || f < float64(n) {
-		return false
+// potion manual — bisa dipakai di dalam ATAU luar pertarungan
+func bossPotion(w http.ResponseWriter, p *Player) {
+	mx, _ := toF(p.Data["hero"].(map[string]any)["hp_max"])
+	cur := heroHP(p)
+	if cur >= mx {
+		writeJSON(w, 400, map[string]string{"err": "❤️ HP sudah penuh"})
+		return
 	}
-	st[id] = f - float64(n)
-	p.Data["inv"] = inv
-	return true
+	if takeStackInv(p, "potion_kecil", 1) {
+		cur += float64(ITEMS["potion_kecil"].HP)
+	} else if takeStackInv(p, "potion_besar", 1) {
+		cur += float64(ITEMS["potion_besar"].HP)
+	} else {
+		writeJSON(w, 400, map[string]string{"err": "gak ada potion! beli di shop"})
+		return
+	}
+	if cur > mx {
+		cur = mx
+	}
+	p.Data["hero"].(map[string]any)["hp"] = cur
+	p.Data["hp_at"] = float64(time.Now().Unix())
+	savePlayerData(p)
+	writeJSON(w, 200, map[string]any{"player": p, "msg": "🧪 HP pulih ke " + itoa(int(cur)) + "/" + itoa(int(mx))})
 }

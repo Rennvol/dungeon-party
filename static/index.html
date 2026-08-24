@@ -51,10 +51,17 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   </div>
   <div class="dungeon" id="heroBox" style="display:none">
     <div class="dname" id="hnama">—</div>    <div class="dsub" id="hstat">—</div>
-    <div style="background:#0d0d14;border-radius:8px;height:10px;margin-top:8px;overflow:hidden">
-      <div id="xpbar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a227,#f5c542)"></div>
-    </div>
+    <div class="barwrap"><div id="xpbar"></div><span id="xptxt"></span></div>
+    <div class="barwrap hp"><div id="hpbar"></div><span id="hptxt"></span></div>
+    <button class="ghost" style="margin-top:6px;padding:5px 10px" onclick="usePotion()">🧪 Pakai Potion</button>
   </div>
+  <style>
+    .barwrap{position:relative;background:#0d0d14;border-radius:8px;height:16px;margin-top:6px;overflow:hidden}
+    .barwrap>div{height:100%;width:0%;transition:width .3s}
+    #xpbar{background:linear-gradient(90deg,#c9a227,#f5c542)}
+    .barwrap.hp{height:14px}.barwrap.hp>div{background:linear-gradient(90deg,#c0392b,#e74c3c)}
+    .barwrap span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.7rem;color:#fff;text-shadow:0 1px 2px #000}
+  </style>
 
   <!-- TAB AKTIVITAS -->
   <div id="tabs" style="display:none;gap:6px;margin-bottom:10px">
@@ -80,6 +87,14 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   </div>
 
   <div id="pane_boss" class="pane dungeon" style="display:none;text-align:left">
+    <div id="battleBox" style="display:none;border:1px solid #5a2a2a;border-radius:10px;padding:12px;margin-bottom:10px">
+      <div class="dname" id="btNama">—</div>
+      <div class="barwrap hp"><div id="btHp"></div><span id="btHpTxt"></span></div>
+      <div style="margin-top:8px;max-height:140px;overflow-y:auto;font-size:.8rem;color:#aaa;line-height:1.7;background:#0d0d14;border-radius:8px;padding:8px" id="btLog"></div>
+      <button style="margin-top:8px" id="btnAtk" onclick="bAttack()">⚔️ SERANG (d20)</button>
+      <button class="ghost" style="margin-top:8px" onclick="bPotion()">🧪 Potion</button>
+      <button class="ghost" style="margin-top:8px;color:#e67e22" onclick="bFlee()">🏃 Kabur</button>
+    </div>
     <div id="bossList"></div>
   </div>
   <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
@@ -191,8 +206,12 @@ function render(){
   $('bagBox').style.display='block'; $('tabs').style.display='flex';
   const need = Math.round(50*Math.pow(1.35,h.lvl-1));
   $('hnama').textContent = h.nama || h.class.toUpperCase();
-  $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · HP ${h.hp_max} · XP ${h.xp}/${need} · Power ${S.power}`;
+  $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · DEF ${h.def||0} · Power ${S.power}`;
+  const hpPct = Math.max(0, Math.min(100, (h.hp ?? h.hp_max)/h.hp_max*100));
+  $('hpbar').style.width = hpPct+'%';
+  $('hptxt').textContent = `❤️ ${Math.round(h.hp ?? h.hp_max)}/${h.hp_max}`;
   $('xpbar').style.width = Math.min(100, h.xp/need*100)+'%';
+  $('xptxt').textContent = `✨ XP ${Math.floor(h.xp)}/${need}`;
   renderBag();
 }
 
@@ -371,32 +390,80 @@ setInterval(()=>{
   el.textContent = left>0?`Party istirahat... ${left}s`:'Siap dive!';
 },500);
 
-// boss: list + fight d20
+// boss: turn-based — start → serang per klik → potion → flee
+let BOSS_CACHE = [];
 async function loadBosses(){
-  const list=await fetch('/api/bosses').then(x=>x.json());
-  $('bossList').innerHTML=list.map(b=>{
+  if(!BOSS_CACHE.length) BOSS_CACHE = await fetch('/api/bosses').then(x=>x.json());
+  const busy = S.data.battle && S.data.battle.boss;
+  if(busy){
+    const b = BOSS_CACHE.find(x=>x.id===busy.boss);
+    $('battleBox').style.display='block';
+    $('btNama').textContent = b?b.nama:'Boss';
+    updateBtHp(S.data.battle.bhp, b?b.hp:1);
+    $('bossList').innerHTML='';
+    return;
+  }
+  $('battleBox').style.display='none';
+  $('bossList').innerHTML=BOSS_CACHE.map(b=>{
     const locked=(S?.data?.hero?.lvl||1)<b.min_lvl;
     return `<div style="border:1px solid #3a2a4a;border-radius:10px;padding:12px;margin-bottom:8px">
       <div class="dname">${b.nama} ${locked?'🔒':''}</div>
       <div class="dsub">🌑 ${b.element} · HP ${b.hp} · ATK ${b.atk} · butuh Lv.${b.min_lvl}</div>
       <div class="dsub" style="color:#c9a227">Hadiah: 🪙 ${b.gold_win.toLocaleString('id')} + ${b.xp_win} XP</div>
-      <button style="margin-top:8px" ${locked?'disabled':''} onclick="fightBoss('${b.id}')">🎲 TANTANG (d20)</button>
+      <button style="margin-top:8px" ${locked?'disabled':''} onclick="bStart('${b.id}')">⚔️ MULAI PERTARUNGAN</button>
     </div>`;
   }).join('');
 }
-async function fightBoss(id){
-  const r=await api('boss',{id});
+function updateBtHp(bhp,bmax){
+  const pct=Math.max(0,bhp/bmax*100);
+  $('btHp').style.width=pct+'%';
+  $('btHpTxt').textContent=`👹 ${Math.max(0,Math.round(bhp))}/${bmax}`;
+}
+async function bStart(id){
+  const r=await api('boss',{action:'start',id});
   if(r.err) return toast('❌ '+r.err);
-  applyPlayer(r.player); 
-  toast(r.win?'🏆 '+r.msg:'💀 '+r.msg);
-  // tampilkan log dadu di modal
-  $('mdBody').innerHTML=`<div class="dname">${r.win?'🏆 MENANG!':'💀 KALAH'}</div>
-    <div style="font-size:.85rem;color:#aaa;margin:10px 0;line-height:1.6">${r.logs.map(l=>'· '+l).join('<br>')}</div>`;
-  $('btnYes').style.display='none';
-  $('modal').style.display='flex';
+  S=r.player; render(); toast('⚔️ Pertarungan dimulai!'); loadBosses();
+}
+async function bAttack(){
+  $('btnAtk').disabled=true; setTimeout(()=>$('btnAtk').disabled=false,600);
+  const r=await api('boss',{action:'attack'});
+  if(r.err){ toast('❌ '+r.err); return; }
+  S=r.player; render();
+  for(const l of r.log) btLog(l);
+  updateBattleState();
+  if(r.win!==undefined){
+    setTimeout(()=>{
+      $('battleBox').style.display='none'; loadBosses();
+      toast(r.win?'🏆 MENANG!':'💀 Kalah...');
+    },1200);
+  }
+}
+function updateBattleState(){
+  if(!S.data.battle) return;
+  const b=BOSS_CACHE.find(x=>x.id===S.data.battle.boss);
+  if(b) updateBtHp(S.data.battle.bhp, b.hp);
+}
+async function bPotion(){
+  const r=await api('boss',{action:'potion'});
+  if(r.err) return toast('❌ '+r.err);
+  S=r.player; render(); btLog('🧪 '+r.msg);
+}
+async function bFlee(){
+  const r=await api('boss',{action:'flee'});
+  if(r.err) return toast('❌ '+r.err);
+  S=r.player; render(); $('battleBox').style.display='none'; loadBosses();
+}
+function btLog(t){
+  const d=document.createElement('div'); d.textContent=t;
+  $('btLog').prepend(d);
+}
+async function usePotion(){
+  const r=await api('boss',{action:'potion'});
+  if(r.err) return toast('❌ '+r.err);
+  S=r.player; render(); toast(r.msg);
 }
 
-// save tiap 30 detik — kirim delta gold+xp, server validasi & recompute
+// save tiap 30 detik — sinkron ke server
 async function saveNow(){
   if(!S || !S.data || !S.data.hero) return;
   const gd = Math.max(0, Math.floor(gold - (S._syncedGold ?? S.gold)));
