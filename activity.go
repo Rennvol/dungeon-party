@@ -67,6 +67,66 @@ func heroHP(p *Player) float64 {
 	return f
 }
 
+// AUTO RAID TICK — server-side: tiap load, kalau raid_on & sudah lewat CD 25s,
+// party "meraid" dungeon yang dipilih (data.raid_dg): XP + drop otomatis.
+func raidTick(p *Player) {
+	on, _ := p.Data["raid_on"].(bool)
+	if !on {
+		return
+	}
+	dgID, _ := p.Data["raid_dg"].(string)
+	d, ok := DUNGEONS[dgID]
+	if !ok {
+		// belum pilih dungeon → raid idle, tapi tetap terkunci (toggle menyimpan raid_dg juga)
+		return
+	}
+	now := time.Now().Unix()
+	last, _ := toF(p.Data["last_raid"])
+	if now-int64(last) < 25 {
+		return // masih cooldown
+	}
+	h := p.Data["hero"].(map[string]any)
+	lvl := int(toFv(h["lvl"]))
+	if lvl < d.MinLvl {
+		p.Data["raid_on"] = false
+		return
+	}
+	mx, _ := toF(h["hp_max"])
+	cur := heroHP(p)
+	if cur <= mx*0.15 {
+		p.Data["raid_on"] = false // HP kritis → raid berhenti sendiri
+		return
+	}
+	h["hp"] = cur - mx*0.08
+	p.Data["last_raid"] = float64(now)
+	xp := d.XP * (1 + rand.Intn(3))
+	gainXP(p, xp)
+	msg := "⚔️ Raid " + d.Nama + ": +" + itoa(xp) + " XP"
+	// LOG RAID: simpan exp + item biar user tau progress
+	log := []string{}
+	if a, ok := p.Data["raid_log"].([]any); ok {
+		for _, x := range a {
+			if s, ok := x.(string); ok {
+				log = append(log, s)
+			}
+		}
+	}
+	log = append(log, msg)
+	if rand.Intn(100) < d.DropPct {
+		id := rollLoot()
+		if id != "" && isEquipID(id) && bagHasRoom(p) {
+			invE := normInv(p.Data["inv"])
+			addItemSrv(invE, id, 1)
+			p.Data["inv"] = invE
+			log = append(log, "🎁 Drop: "+(ITEMS[id].Nama))
+		}
+	}
+	if len(log) > 25 {
+		log = log[len(log)-25:] // ring buffer
+	}
+	p.Data["raid_log"] = log
+}
+
 // ---------- KEBUN (gold) ----------
 
 func handleGarden(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +139,10 @@ func handleGarden(w http.ResponseWriter, r *http.Request) {
 	p, err := loadPlayer(pid)
 	if err != nil || p.Data["hero"] == nil {
 		writeJSON(w, 400, map[string]string{"err": "belum siap"})
+		return
+	}
+	if raidLocked(p) && req.Action != "raid" {
+		writeBusy(w, "panen kebun")
 		return
 	}
 
@@ -148,16 +212,53 @@ func harvestGarden(p *Player) {
 
 func resetGardenClock(p *Player) { p.Data["garden_at"] = float64(time.Now().Unix()) }
 
+// RAID LOCK: saat auto-raid aktif, party ada di dungeon — gak bisa aktivitas lain.
+func raidLocked(p *Player) bool {
+	on, _ := p.Data["raid_on"].(bool)
+	return on
+}
+
+func writeBusy(w http.ResponseWriter, wkt string) {
+	writeJSON(w, 429, map[string]string{"err": "⚔️ Party lagi RAID di dungeon! Matiin Auto Raid dulu buat " + wkt})
+}
+
 // ---------- DUNGEON (XP) — dive nguras HP 8% ----------
 
 func handleDungeon(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
-	var req struct{ Dive string }
+	var req struct {
+		Dive string `json:"dive"`
+		Raid string `json:"raid"` // "on" | "off" — auto raid
+	}
 	json.NewDecoder(r.Body).Decode(&req)
 
 	p, err := loadPlayer(pid)
 	if err != nil || p.Data["hero"] == nil {
 		writeJSON(w, 400, map[string]string{"err": "belum siap"})
+		return
+	}
+
+	// toggle auto raid — server yang jalanin, bukan client
+	if req.Raid == "on" || req.Raid == "off" {
+		on := req.Raid == "on"
+		p.Data["raid_on"] = on
+		if on {
+			dg := req.Dive
+			if dg == "" {
+				dg = "gua_goblin"
+			}
+			p.Data["raid_dg"] = dg
+		}
+		savePlayerData(p)
+		msg := "🛑 Auto Raid MATI — party balik ke kamp"
+		if on {
+			msg = "⚔️ AUTO RAID AKTIF! Party terus-terusan ngeraid dungeon. Panen/boss/tempa/toko DIKUNCI."
+		}
+		writeJSON(w, 200, map[string]any{"player": p, "msg": msg})
+		return
+	}
+	if raidLocked(p) {
+		writeBusy(w, "raid manual")
 		return
 	}
 	d, ok := DUNGEONS[req.Dive]
@@ -172,6 +273,11 @@ func handleDungeon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h := p.Data["hero"].(map[string]any)
+	lvl := int(toFv(h["lvl"]))
+	if lvl < d.MinLvl {
+		writeJSON(w, 400, map[string]string{"err": "🔒 butuh Lv." + itoa(d.MinLvl) + " buat " + d.Nama})
+		return
+	}
 	mx, _ := toF(h["hp_max"])
 	cur := heroHP(p)
 	if cur < mx*0.15 {
@@ -184,10 +290,10 @@ func handleDungeon(w http.ResponseWriter, r *http.Request) {
 
 	xp := d.XP * (1 + rand.Intn(3))
 	gainXP(p, xp)
-	msg := "⚔️ Dive " + d.Nama + ": +" + itoa(xp) + " XP"
+	msg := "⚔️ Raid " + d.Nama + ": +" + itoa(xp) + " XP"
 
 	drops := []string{}
-	if rand.Intn(100) < 15 {
+	if rand.Intn(100) < d.DropPct {
 		id := rollLoot()
 		if id != "" {
 			if isEquipID(id) {
@@ -263,6 +369,10 @@ func findBoss(id string) *Boss {
 }
 
 func bossStart(w http.ResponseWriter, p *Player, id string) {
+	if raidLocked(p) {
+		writeBusy(w, "lawan boss")
+		return
+	}
 	if _, busy := p.Data["battle"].(map[string]any); busy {
 		writeJSON(w, 400, map[string]string{"err": "masih ada pertarungan aktif"})
 		return
@@ -282,10 +392,14 @@ func bossStart(w http.ResponseWriter, p *Player, id string) {
 		writeJSON(w, 400, map[string]string{"err": "❤️ HP di bawah 30% — sembuhkan dulu"})
 		return
 	}
-	p.Data["battle"] = map[string]any{"boss": boss.ID, "bhp": float64(boss.HP), "wind": 2.0}
+	p.Data["battle"] = map[string]any{
+		"boss": boss.ID, "bhp": float64(boss.HP), "wind": 2.0,
+		"nama": boss.Nama + " " + BOSS_TITLES[rand.Intn(len(BOSS_TITLES))],
+	}
 	savePlayerData(p)
+	btl := p.Data["battle"].(map[string]any)
 	writeJSON(w, 200, map[string]any{"player": p,
-		"log": []string{"⚔️ " + boss.Nama + " muncul! Giliranmu — tekan SERANG."}})
+		"log": []string{"⚔️ " + btl["nama"].(string) + " (Lv." + itoa(boss.MinLvl+bossKills(p, boss.ID)) + ") muncul! Giliranmu — tekan SERANG."}})
 }
 
 func toFv(v any) float64 { f, _ := v.(float64); return f }
@@ -379,9 +493,12 @@ func bossAttack(w http.ResponseWriter, p *Player, useSkill string) {
 	br := rand.Intn(20) + 1
 
 	if hr == 20 || (hr > br && hr != 1) {
-		// hero menang ronde
+		// hero menang ronde — dmg dikurangi DEF boss
 		margin := float64(hr-br) / 18.0 // 0..1
-		dmg := atkBase * dmgMul * (0.7 + 0.6*margin)
+		dmg := (atkBase*dmgMul - float64(boss.DEF)) * (0.7 + 0.6*margin)
+		if dmg < atkBase*0.2 {
+			dmg = atkBase * 0.2 // minimal 20% ATK biar gak nol
+		}
 		if hr == 20 {
 			dmg = atkBase * dmgMul * 2
 			logs = append(logs, fmt.Sprintf("🎲 NAT 20!! (boss %d) CRIT %d dmg 🔥", br, int(dmg)))

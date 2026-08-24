@@ -176,6 +176,7 @@ func loadPlayer(pid int64) (*Player, error) {
 		json.Unmarshal(data, &p.Data)
 	}
 	applyRegen(p) // HP regen pasca-pertarungan (1%/3s)
+	raidTick(p)   // auto raid: XP+drop otomatis selama raid_on
 	return p, nil
 }
 

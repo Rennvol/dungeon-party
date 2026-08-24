@@ -120,6 +120,7 @@ func scaleBoss(b Boss, k int) Boss {
 	mult := 1.0 + 0.35*float64(k)
 	b.HP = int(float64(b.HP) * mult)
 	b.ATK = int(float64(b.ATK)*mult + 0.5)
+	b.DEF = int(float64(b.DEF)*mult + 0.5)
 	b.GoldWin = int64(float64(b.GoldWin) * mult)
 	b.XPWin = int(float64(b.XPWin) * mult)
 	return b

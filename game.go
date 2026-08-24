@@ -115,6 +115,10 @@ func handleShop(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"err": "gak ada"})
 		return
 	}
+	if raidLocked(p) && (req.Item != "" || req.Pay != "") {
+		writeBusy(w, "belanja")
+		return
+	}
 	inv := normInv(p.Data["inv"])
 
 	// bayar pakai herbal

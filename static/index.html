@@ -85,10 +85,17 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   </div>
 
   <div id="pane_dungeon" class="pane dungeon" style="display:none;text-align:left">
-    <div class="dname">⚔️ Gua Goblin</div>
-    <div class="dsub">Dive buat XP & drop loot · cooldown 25 detik</div>
-    <button style="margin-top:12px" id="btnDive" onclick="dive()">⚔️ MULAI DIVE (+2-6 XP)</button>
-    <div id="diveCd" class="dsub" style="margin-top:6px"></div>
+    <div class="dname">⚔️ Dungeon</div>
+    <div class="dsub">Pilih dungeon buat di-raid · makin tinggi makin berbahaya & drop melimpah</div>
+    <div id="dgList" style="margin-top:10px"></div>
+    <button id="btnDive" onclick="dive()" class="ghost" style="width:100%;margin-top:8px;padding:9px">⚔️ RAID SEKALI (manual)</button>
+    <div id="diveCd" class="dsub" style="margin-top:4px"></div>
+    <button id="btnRaid" onclick="toggleRaid()" class="ghost" style="width:100%;margin-top:10px;padding:10px">⚔️ AKTIFKAN AUTO RAID</button>
+    <div id="raidInfo" class="dsub" style="margin-top:6px;text-align:center"></div>
+    <div id="raidLogBox" style="margin-top:10px;background:#120e1a;border:1px solid #3a2a4a;border-radius:8px;padding:8px;max-height:180px;overflow:auto;font-size:12px;display:none">
+      <div class="dsub" style="margin-bottom:4px">📜 LOG RAID</div>
+      <div id="raidLog"></div>
+    </div>
   </div>
 
   <div id="pane_boss" class="pane dungeon" style="display:none;text-align:left">
@@ -411,6 +418,7 @@ function showTab(t){
     $('tab_'+x).classList.toggle('active', x===t);
   }
   if(t==='garden') refreshGarden();
+  if(t==='dungeon') loadDungeons();
   if(t==='boss') loadBosses();
   if(t==='dojo') loadSkills();
   if(t==='forge') loadForge();
@@ -466,31 +474,69 @@ async function gardenUpgrade(){
   applyPlayer(r.player); toast('🌱 '+r.msg);
 }
 
-// dungeon: dive XP dengan cooldown 25s
-async function dive(){
-  const r=await api('dungeon',{dive:'gua_goblin'});
-  if(r.err) return toast('❌ '+r.err);
-  applyPlayer(r.player); toast('⚔️ '+r.msg);
-  diveCdUntil=Date.now()+25000; render();
+// dungeon: pilih dungeon + auto raid (server-side)
+let DG_CACHE = null, raidDg = localStorage.getItem('dp_raid_dg') || 'gua_goblin';
+async function loadDungeons(){
+  if(!DG_CACHE) DG_CACHE = await fetch('/api/items?type=dungeons',{headers:{Authorization:token}}).then(x=>x.json());
+  const lvl = S?.data?.hero?.lvl||1;
+  const on = !!S.data.raid_on;
+  $('dgList').innerHTML = DG_CACHE.map(d=>{
+    const locked = lvl < d.min_lvl;
+    return `<div style="border:1px solid ${raidDg===d.id?'#c9a227':'#2a3a4a'};border-radius:10px;padding:10px;margin-bottom:8px;${locked?'opacity:.5':''}">
+      <b>${d.nama}</b> ${locked?`🔒 butuh Lv.${d.min_lvl}`:''}
+      <div class="dsub">+${d.xp}-${d.xp*3} XP · drop ${d.drop_pct}% · cooldown 25s</div>
+      ${locked?'':`<button class="ghost" style="margin-top:6px;padding:4px 12px" onclick="pickDG('${d.id}')">${raidDg===d.id?'✅ dipilih':'pilih'}</button>`}
+    </div>`;
+  }).join('');
+  // log raid
+  const log = (S.data.raid_log||[]);
+  $('raidLogBox').style.display = log.length ? 'block' : 'none';
+  $('raidLog').innerHTML = log.slice().reverse().map(t=>`<div style="padding:2px 0;border-bottom:1px solid #241a30">${t}</div>`).join('');
+  $('btnDive').disabled = on; // auto raid aktif → manual gak perlu
+  $('btnDive').style.opacity = on ? .4 : 1;
+  const btn=$('btnRaid');
+  btn.textContent = on ? '🛑 MATIKAN AUTO RAID' : '⚔️ AKTIFKAN AUTO RAID';
+  btn.style.background = on ? '#c0392b' : '';
+  btn.style.color = on ? '#fff' : '';
+  $('raidInfo').textContent = on ? `Party di ${DG_CACHE.find(d=>d.id===raidDg)?.nama||'?'} — XP & drop jalan otomatis. Panen/boss/tempa/toko terkunci!` : 'Auto raid mati — aktivitas bebas.';
 }
-let diveCdUntil=0;
-setInterval(()=>{
-  const el=$('diveCd'); if(!el||!S||!S.data.hero)return;
-  const left=Math.ceil((diveCdUntil-Date.now())/1000);
-  $('btnDive').disabled = left>0;
-  el.textContent = left>0?`Party istirahat... ${left}s`:'Siap dive!';
-},500);
+function pickDG(id){ raidDg=id; localStorage.setItem('dp_raid_dg', id); loadDungeons(); }
+let raidPollTimer = null;
+async function toggleRaid(){
+  const r = await api('dungeon',{raid: S.data.raid_on?'off':'on', dive: raidDg});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast(r.msg); loadDungeons();
+  if(S.data.raid_on){
+    if(raidPollTimer) clearInterval(raidPollTimer);
+    raidPollTimer = setInterval(async ()=>{
+      if(!S.data.raid_on) { clearInterval(raidPollTimer); return; }
+      const d = await fetch('/api/state',{headers:{Authorization:token}}).then(x=>x.json()).catch(()=>null);
+      if(d && d.data){ S=d; S._syncedGold=d.gold; gold=d.gold; if($('pane_dungeon').style.display==='block') loadDungeons(); render(); }
+    }, 8000);
+  } else if(raidPollTimer){
+    clearInterval(raidPollTimer); raidPollTimer=null;
+  }
+}
+async function dive(){
+  const r=await api('dungeon',{dive:raidDg});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player);
+  toast('⚔️ '+r.msg);
+  for(const d of (r.drops||[])) toast('🎁 Drop: '+(ITEMS[d]?.nama||d)+'!');
+  diveCdUntil=Date.now()+25000; render(); loadDungeons();
+}
 
 // boss: turn-based — start → serang per klik → potion → flee
-let BOSS_CACHE = [], BOSS_KILLS_STALE = true;
+let BOSS_CACHE = [], BOSS_KILLS_STALE = true, CUR_BOSS_NAME = '';
 async function loadBosses(){
   if(!BOSS_CACHE.length || BOSS_KILLS_STALE) BOSS_CACHE = await fetch('/api/bosses',{headers:{Authorization:token}}).then(x=>x.json());
   BOSS_KILLS_STALE=false;
   const busy = S.data.battle && S.data.battle.boss;
   if(busy){
     const b = BOSS_CACHE.find(x=>x.id===busy.boss);
+    const nm = busy.nama || CUR_BOSS_NAME || (b?b.nama:'Boss');
     $('battleBox').style.display='block';
-    $('btNama').textContent = b?b.nama:'Boss';
+    $('btNama').textContent = nm;
     updateBtHp(S.data.battle.bhp, b?b.hp:1);
     updSkillBtns();
     $('bossList').innerHTML='';
@@ -498,10 +544,11 @@ async function loadBosses(){
   }
   $('battleBox').style.display='none';
   $('bossList').innerHTML=BOSS_CACHE.map(b=>{
-    const locked=(S?.data?.hero?.lvl||1)<b.min_lvl;
+    const lvl=S?.data?.hero?.lvl||1;
+    const locked=lvl<b.min_lvl;
     return `<div style="border:1px solid #3a2a4a;border-radius:10px;padding:12px;margin-bottom:8px">
       <div class="dname">${b.nama} ${locked?'🔒':''}</div>
-      <div class="dsub">🌑 ${b.element} · HP ${b.hp} · ATK ${b.atk} · butuh Lv.${b.min_lvl}</div>
+      <div class="dsub">🌑 ${b.element} · Lv.${b.min_lvl} · HP ${b.hp} · ATK ${b.atk} · DEF ${b.def||0}</div>
       <div class="dsub" style="color:#c9a227">Hadiah: 🪙 ${b.gold_win.toLocaleString('id')} + ${b.xp_win} XP</div>
       <button style="margin-top:8px" ${locked?'disabled':''} onclick="bStart('${b.id}')">⚔️ MULAI PERTARUNGAN</button>
     </div>`;
@@ -515,6 +562,7 @@ function updateBtHp(bhp,bmax){
 async function bStart(id){
   const r=await api('boss',{action:'start',id});
   if(r.err) return toast('❌ '+r.err);
+  CUR_BOSS_NAME = (r.log&&r.log[0]?r.log[0].replace(/^⚔️ /,''):'') || '';
   S=r.player; render(); toast('⚔️ Pertarungan dimulai!'); loadBosses();
 }
 async function bAct(skill){

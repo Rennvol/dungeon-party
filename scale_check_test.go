@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestScaleBoss(t *testing.T) {
-	b := Boss{"x", "x", "gelap", 350, 16, 5, 1500, 400}
+	b := Boss{"x", "x", "gelap", 350, 16, 5, 5, 1500, 400}
 	sb := scaleBoss(b, 3)
 	// mult = 1 + 0.35*3 = 2.05; GoldWin int64 trunc: 1500*2.05 = 3074.99… → 3074
 	if sb.HP != 717 || sb.ATK != 33 || sb.GoldWin != 3074 {

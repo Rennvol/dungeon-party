@@ -40,6 +40,14 @@ func normInv(v any) map[string]any {
 	if m["equip"] == nil {
 		m["equip"] = []any{}
 	}
+	// bersihkan stack value <=0 (jangan biarkan item "0" numpuk di tas)
+	if st, ok := m["stack"].(map[string]any); ok {
+		for k, val := range st {
+			if f, ok := val.(float64); ok && f <= 0 {
+				delete(st, k)
+			}
+		}
+	}
 	return m
 }
 

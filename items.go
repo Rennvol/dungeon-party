@@ -90,8 +90,16 @@ func itemPower(it Item, lv int) int {
 
 // ---------- API ----------
 
-// GET /api/items — katalog lengkap buat UI
+// GET /api/items — katalog lengkap buat UI; ?type=dungeons → list dungeon
 func handleItems(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("type") == "dungeons" {
+		out := []Dungeon{}
+		for _, d := range DUNGEONS {
+			out = append(out, d)
+		}
+		writeJSON(w, 200, out)
+		return
+	}
 	list := []Item{}
 	for _, it := range ITEMS {
 		list = append(list, it)
@@ -265,6 +273,10 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"err": "belum siap"})
 		return
 	}
+	if raidLocked(p) {
+		writeBusy(w, "nempa")
+		return
+	}
 	// cari item & lv
 	var it Item
 	var curLv int
@@ -361,7 +373,12 @@ func takeStack(inv map[string]any, id string, n int) bool {
 	if !ok || f < float64(n) {
 		return false
 	}
-	st[id] = f - float64(n)
+	f -= float64(n)
+	if f <= 0 {
+		delete(st, id) // bersihkan entry value 0 biar gak numpuk di tas
+	} else {
+		st[id] = f
+	}
 	return true
 }
 
