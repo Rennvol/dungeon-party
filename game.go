@@ -85,7 +85,7 @@ var rng = rand.New(rand.NewSource(1))
 
 func farmGold(d Dungeon) int { return d.GoldMin + rand.Intn(d.GoldMax-d.GoldMin+1) }
 
-// POST /api/shop {item:"potion_kecil"} — beli
+// POST /api/shop {item} — beli pakai gold; {item, pay:"herbal"} — tukar herbal
 var SHOP = map[string]struct {
 	Nama string `json:"nama"`
 	Harga int64  `json:"harga"`
@@ -94,9 +94,15 @@ var SHOP = map[string]struct {
 	"potion_besar": {"🧴 Potion HP Besar (+80)", 180},
 }
 
+// tukar herbal → potion (resep alchemy)
+var BREW = map[string]int{"potion_kecil": 2, "potion_besar": 5}
+
 func handleShop(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
-	var req struct{ Item string }
+	var req struct {
+		Item string
+		Pay  string `json:"pay"`
+	}
 	json.NewDecoder(r.Body).Decode(&req)
 	item, ok := SHOP[req.Item]
 	if !ok {
@@ -109,12 +115,37 @@ func handleShop(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"err": "gak ada"})
 		return
 	}
+	inv := normInv(p.Data["inv"])
+
+	// bayar pakai herbal
+	if req.Pay == "herbal" {
+		need, ok := BREW[req.Item]
+		if !ok {
+			writeJSON(w, 400, map[string]string{"err": "gak bisa dibrEW dari herbal"})
+			return
+		}
+		st, _ := inv["stack"].(map[string]any)
+		f, _ := st["herbal"].(float64)
+		if f < float64(need) {
+			writeJSON(w, 400, map[string]string{"err": "🌿 herbal kurang (butuh " + itoa(need) + ")"})
+			return
+		}
+		st["herbal"] = f - float64(need)
+		if st["herbal"].(float64) <= 0 {
+			delete(st, "herbal")
+		}
+		addItemSrv(inv, req.Item, 1)
+		p.Data["inv"] = inv
+		savePlayerData(p)
+		writeJSON(w, 200, p)
+		return
+	}
+
 	if p.Gold < item.Harga {
 		writeJSON(w, 400, map[string]string{"err": "gold kurang"})
 		return
 	}
 	p.Gold -= item.Harga
-	inv := normInv(p.Data["inv"])
 	if bagUsed(inv) >= bagSlots(p.Data) {
 		writeJSON(w, 400, map[string]string{"err": "tas penuh! Upgrade tas dulu"})
 		return

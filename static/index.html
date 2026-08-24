@@ -114,8 +114,18 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
   <div id="classList"></div>
   <div id="shopBox" style="display:none">
-    <button class="ghost" onclick="buy('potion_kecil')">🧪 Potion Kecil — 50g</button>
-    <button class="ghost" onclick="buy('potion_besar')">🧴 Potion Besar — 180g</button>
+    <div class="dname">🏪 Apotek</div>
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-bottom:8px">
+      <b>🧪 Potion HP Kecil (+30)</b> — 50g
+      <button style="padding:4px 10px" onclick="buy('potion_kecil')">Beli</button>
+      <button class="ghost" style="padding:4px 10px;color:#7ec850" onclick="buyHerbal('potion_kecil')">🌿 5 Herbal</button>
+    </div>
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px">
+      <b>🧴 Potion HP Besar (+80)</b> — 180g
+      <button style="padding:4px 10px" onclick="buy('potion_besar')">Beli</button>
+      <button class="ghost" style="padding:4px 10px;color:#7ec850" onclick="buyHerbal('potion_besar')">🌿 12 Herbal</button>
+    </div>
+    <div class="dsub" id="herbalCount" style="margin-top:6px"></div>
   </div>
   <div class="dungeon" id="bagBox" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -218,6 +228,8 @@ function render(){
   $('btnChoose').style.display='none';
   $('heroBox').style.display='block'; $('shopBox').style.display='block';
   $('bagBox').style.display='block'; $('tabs').style.display='flex';
+  const hb = S.data.inv?.stack?.herbal||0;
+  $('herbalCount').textContent = `🌿 Herbal di tas: ${hb} — tukar jadi potion tanpa gold!`;
   const need = Math.round(50*Math.pow(1.35,h.lvl-1));
   $('hnama').textContent = h.nama || h.class.toUpperCase();
   $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · DEF ${h.def||0} · Power ${S.power}`;
@@ -536,6 +548,12 @@ async function buy(item){
   const r = await api('shop',{item});
   if(r.err) return toast('❌ '+r.err);
   applyPlayer(r); toast('🛒 '+(ITEMS[item]?.nama||item)+' dibeli ✅');
+}
+// tukar herbal → potion
+async function buyHerbal(item){
+  const r = await api('shop',{item, pay:'herbal'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast('⚗️ '+(ITEMS[item]?.nama||item)+' dibuat dari herbal ✅');
 }
 
 if(token) loadState();
