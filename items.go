@@ -27,6 +27,7 @@ var ITEMS = map[string]Item{
 	"kulit_goblin": {"kulit_goblin", "🟫 Kulit Goblin", "mat", "common", "", 0, 0, 0, nil, 12},
 	"bijih_besi":   {"bijih_besi", "⛏️ Bijih Besi", "mat", "common", "", 0, 0, 0, nil, 20},
 	"herbal":       {"herbal", "🌿 Herbal", "mat", "common", "", 0, 0, 0, nil, 15},
+	"forge_stone":  {"forge_stone", "🪨 Forge Stone (+10% tempa)", "mat", "rare", "", 0, 0, 0, nil, 120},
 
 	// ---- WEAPON (per class!) ----
 	"wep_besi":     {"wep_besi", "🗡️ Pedang Besi", "wep", "common", "api", 8, 0, 0, []string{"warrior"}, 150},
@@ -60,6 +61,7 @@ var LOOT_GOBLIN = []struct {
 	Weight int
 }{
 	{"kulit_goblin", 40}, {"bijih_besi", 22},
+	{"forge_stone", 3},
 	{"boot_kulit", 8}, {"hel_baja", 6}, {"arm_kulit", 8},
 	{"wep_besi", 4}, {"staf_pemula", 4}, {"bow_rimba", 4}, {"tongkat_suci", 4},
 	{"arm_baja", 2}, {"cap_alam", 2},
@@ -254,7 +256,8 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		UID string `json:"uid"`
 		UseProt bool `json:"use_prot"`
-	}
+		UseStone int `json:"use_stone"`
+		}
 	json.NewDecoder(r.Body).Decode(&req)
 
 	p, err := loadPlayer(pid)
@@ -287,14 +290,28 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	costGold := int64(float64(it.UpCostHarga()) * pow16(float64(curLv)))
 	costOre := curLv + 1
-	if p.Gold < costGold {
-		writeJSON(w, 400, map[string]string{"err": "gold kurang (butuh " + itoa(int(costGold)) + ")"})
-		return
-	}
 	inv := normInv(p.Data["inv"])
 	st, _ := inv["stack"].(map[string]any)
 	if st == nil {
 		st = map[string]any{}
+	}
+	// persen sukses: 100% sampai +5, turun 8%/lv setelahnya; Forge Stone +10%/batu (max 3)
+	succ := 100 - maxInt(0, curLv-4)*8
+	useStone := 0
+	if req.UseStone > 3 {
+		req.UseStone = 3
+	}
+	if succ < 100 && req.UseStone > 0 {
+		st0, _ := st["forge_stone"].(float64)
+		useStone = minInt(req.UseStone, int(st0))
+		succ += useStone * 10
+	}
+	if succ > 100 {
+		succ = 100
+	}
+	if p.Gold < costGold {
+		writeJSON(w, 400, map[string]string{"err": "gold kurang (butuh " + itoa(int(costGold)) + ")"})
+		return
 	}
 	ore, _ := st["bijih_besi"].(float64)
 	if ore < float64(costOre) {
@@ -304,14 +321,21 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 
 	p.Gold -= costGold
 	st["bijih_besi"] = ore - float64(costOre)
+	if useStone > 0 {
+		takeStack(inv, "forge_stone", useStone)
+	}
 
 	newLv := curLv + 1
 	failMsg := ""
-	if curLv >= 10 && rand.Intn(100) < 30 {
+	if rand.Intn(100) >= succ {
 		if req.UseProt && takeStack(inv, "prot_stone", 1) {
-			failMsg = " (dilindungi Protection Stone)"
+			newLv = curLv // gagal tapi gak turun
+			failMsg = " ❌ GAGAL (dilindungi Protection Stone, level bertahan)"
 		} else {
 			newLv = curLv - 1
+			if newLv < 0 {
+				newLv = 0
+			}
 			failMsg = " ❌ GAGAL! Turun ke +" + itoa(newLv)
 		}
 	}
@@ -319,7 +343,15 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	p.Data["upg"] = upg
 	recomputeStats(p)
 	savePlayerData(p)
-	msg := "🔨 Upgrade sukses → +" + itoa(newLv) + failMsg
+	msg := "🔨 +" + itoa(newLv)
+	if newLv > curLv {
+		msg = "🔨 SUKSES (" + itoa(succ) + "%) → +" + itoa(newLv) + " — stat naik!"
+	} else if failMsg == "" {
+		newLv = curLv
+		msg = "🔨 tetap +" + itoa(curLv)
+	} else {
+		msg += " (" + itoa(succ) + "%)"
+	}
 	writeJSON(w, 200, map[string]any{"player": p, "msg": msg, "new_lv": newLv})
 }
 
@@ -431,4 +463,18 @@ func (it Item) UpCostHarga() int64 {
 		return 60
 	}
 	return it.Harga * 6 / 10
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

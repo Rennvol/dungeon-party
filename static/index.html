@@ -71,6 +71,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <button class="ghost tabbtn" onclick="showTab('dungeon')" id="tab_dungeon">⚔️ Dungeon</button>
     <button class="ghost tabbtn" onclick="showTab('boss')" id="tab_boss">👑 Boss</button>
     <button class="ghost tabbtn" onclick="showTab('dojo')" id="tab_dojo">🥋 Dojo</button>
+    <button class="ghost tabbtn" onclick="showTab('forge')" id="tab_forge">🔨 Tempa</button>
   </div>
   <style>.tabbtn{padding:8px}.tabbtn.active{background:#c9a227;color:#111}</style>
 
@@ -137,6 +138,13 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <div id="bagItems" style="font-size:.85rem;color:#aaa;line-height:1.7"></div>
   </div>
   <div class="log" id="log"></div>
+</div>
+
+<!-- 🔨 Pandai Besi — panel tempa -->
+<div class="dungeon" id="pane_forge" style="display:none">
+  <div class="dname">🔨 Pandai Besi</div>
+  <div class="dsub">Tempa equipment: stat ×1,08 per level. Di atas +5 ada chance gagal (turun 1 level). 🪨 Forge Stone +10% sukses (max 3/busa).</div>
+  <div id="forgeList" style="margin-top:10px"></div>
 </div>
 
 <!-- Modal detail hero + konfirmasi -->
@@ -265,7 +273,7 @@ function renderBag(){
       <span style="color:${RCOL[it.rarity]||'#aaa'}">${it.nama||e.id}${lv?` +${lv}`:''}</span>
       ${it.class_req&&!it.class_req.includes(S.data.hero?.class)?'🔒':''}
       ${eqd?'<b style="color:#c9a227">[dipakai]</b>':`<a onclick="equipItem('${e.uid}')" style="cursor:pointer;color:#2ecc71;font-size:.75rem">pakai</a>`}
-      <a onclick="upItem('${e.uid}')" style="cursor:pointer;color:#f5c542;font-size:.75rem">🔨</a>
+      <a onclick="showTab('forge')" style="cursor:pointer;color:#f5c542;font-size:.75rem">🔨 tempa</a>
       ${eqd?'':`<a onclick="sellEquip('${e.uid}')" style="cursor:pointer;color:#e67e22;font-size:.75rem">jual</a>`}
     </span>`);
   }
@@ -303,6 +311,36 @@ async function upItem(uid){
   const r = await api('upgrade',{uid, use_prot:useProt});
   if(r.err) return toast('❌ '+r.err);
   applyPlayer(r.player); toast(r.msg);
+}
+// ---------- 🔨 PANDAI BESI ----------
+const RCOL2 = {common:'#9aa0a6', rare:'#4fc3f7', epic:'#ba68c8', legendary:'#ffb300'};
+const SUCC = lv => Math.max(20, 100 - Math.max(0,lv-4)*8);
+function loadForge(){
+  const inv = S.data.inv || {};
+  const eq = inv.equip||[];
+  const upg = S.data.upg||{};
+  const stones = inv.stack?.forge_stone||0;
+  $('forgeList').innerHTML = eq.map(e=>{
+    const it=ITEMS?.[e.id]||{nama:e.id};
+    const lv=upg[e.uid]||0;
+    const locked=it.class_req&&!it.class_req.includes(S.data.hero?.class);
+    return `<div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-bottom:8px">
+      <b style="color:${RCOL2[it.rarity]||'#aaa'}">${it.nama} +${lv}</b> ${locked?'🔒 class lain':''}
+      <div class="dsub">ATK ${Math.round((it.atk||0)*1.08**lv)} · HP ${Math.round((it.hp||0)*1.08**lv)} · DEF ${Math.round((it.def||0)*1.08**lv)} → naik jadi ×1,08</div>
+      <div class="dsub" style="color:${SUCC(lv)>=100?'#2ecc71':'#e67e22'}">Peluang sukses: ${Math.min(100,SUCC(lv))}% · 🪨 Forge Stone tersisa: ${stones}</div>
+      ${lv>=15?'<button disabled style="opacity:.5;margin-top:6px">MAX +15</button>'
+        :`<div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+            <button onclick="doForge('${e.uid}',0)">🔨 Tempa</button>
+            ${stones>0?`<button class="ghost" onclick="doForge('${e.uid}',${Math.min(3,stones)})">🔨🪨×${Math.min(3,stones)}</button>`:''}
+          </div>`}
+    </div>`;
+  }).join('') || '<i style="color:#555">Belum ada equipment — loot dulu di dungeon!</i>';
+}
+async function doForge(uid, stones){
+  const useProt = (S.data.inv?.stack?.prot_stone||0)>0 && confirm('Pakai Protection Stone (level gak turun kalau gagal)?');
+  const r = await api('upgrade',{uid, use_stone:stones, use_prot:useProt});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast(r.msg); loadForge();
 }
 function applyPlayer(p){ 
   const heroLvl = S?.data?.hero?.lvl;
@@ -365,13 +403,14 @@ setInterval(()=>{
 
 // ---------- TAB & AKTIVITAS (fase 2.5) ----------
 function showTab(t){
-  for(const x of ['garden','dungeon','boss','dojo']){
+  for(const x of ['garden','dungeon','boss','dojo','forge']){
     $('pane_'+x).style.display = x===t?'block':'none';
     $('tab_'+x).classList.toggle('active', x===t);
   }
   if(t==='garden') refreshGarden();
   if(t==='boss') loadBosses();
   if(t==='dojo') loadSkills();
+  if(t==='forge') loadForge();
 }
 
 // dojo: latihan skill
