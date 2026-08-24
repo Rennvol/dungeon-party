@@ -68,6 +68,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <button class="ghost tabbtn" onclick="showTab('garden')" id="tab_garden">🌿 Kebun</button>
     <button class="ghost tabbtn" onclick="showTab('dungeon')" id="tab_dungeon">⚔️ Dungeon</button>
     <button class="ghost tabbtn" onclick="showTab('boss')" id="tab_boss">👑 Boss</button>
+    <button class="ghost tabbtn" onclick="showTab('dojo')" id="tab_dojo">🥋 Dojo</button>
   </div>
   <style>.tabbtn{padding:8px}.tabbtn.active{background:#c9a227;color:#111}</style>
 
@@ -96,6 +97,12 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
       <button class="ghost" style="margin-top:8px;color:#e67e22" onclick="bFlee()">🏃 Kabur</button>
     </div>
     <div id="bossList"></div>
+  </div>
+
+  <div id="pane_dojo" class="pane dungeon" style="display:none;text-align:left">
+    <div class="dname">🥋 Dojo — Latihan Skill</div>
+    <div class="dsub">Belanja gold buat latihan → jadi makin jago. Tiap skill punya level MAX.</div>
+    <div id="skillList" style="margin-top:10px"></div>
   </div>
   <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
   <div id="classList"></div>
@@ -337,12 +344,31 @@ setInterval(()=>{
 
 // ---------- TAB & AKTIVITAS (fase 2.5) ----------
 function showTab(t){
-  for(const x of ['garden','dungeon','boss']){
+  for(const x of ['garden','dungeon','boss','dojo']){
     $('pane_'+x).style.display = x===t?'block':'none';
     $('tab_'+x).classList.toggle('active', x===t);
   }
   if(t==='garden') refreshGarden();
   if(t==='boss') loadBosses();
+  if(t==='dojo') loadSkills();
+}
+
+// dojo: latihan skill
+async function loadSkills(){
+  const list=await fetch('/api/skills',{headers:{Authorization:token}}).then(x=>x.json());
+  $('skillList').innerHTML=list.map(s=>`
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-bottom:8px">
+      <div class="dname" style="font-size:1rem">${s.nama} <span style="color:#c9a227">Lv.${s.lv}/${s.max}</span></div>
+      <div class="dsub">${s.desc}</div>
+      ${s.can
+        ? `<button style="margin-top:6px;padding:6px 12px" onclick="train('${s.id}')">🥋 Latihan — ${s.cost.toLocaleString('id')}g</button>`
+        : `<button disabled style="margin-top:6px;opacity:.5">MAX</button>`}
+    </div>`).join('');
+}
+async function train(id){
+  const r=await api('skills',{train:id});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast('🥋 '+r.msg); loadSkills();
 }
 // kebun: preview gold/herbs menumpuk tiap detik
 let gardenBase={gold:0,herbs:0,at:Date.now(),lv:1};
@@ -391,9 +417,10 @@ setInterval(()=>{
 },500);
 
 // boss: turn-based — start → serang per klik → potion → flee
-let BOSS_CACHE = [];
+let BOSS_CACHE = [], BOSS_KILLS_STALE = true;
 async function loadBosses(){
-  if(!BOSS_CACHE.length) BOSS_CACHE = await fetch('/api/bosses').then(x=>x.json());
+  if(!BOSS_CACHE.length || BOSS_KILLS_STALE) BOSS_CACHE = await fetch('/api/bosses',{headers:{Authorization:token}}).then(x=>x.json());
+  BOSS_KILLS_STALE=false;
   const busy = S.data.battle && S.data.battle.boss;
   if(busy){
     const b = BOSS_CACHE.find(x=>x.id===busy.boss);
@@ -432,6 +459,7 @@ async function bAttack(){
   for(const l of r.log) btLog(l);
   updateBattleState();
   if(r.win!==undefined){
+    BOSS_KILLS_STALE = true;
     setTimeout(()=>{
       $('battleBox').style.display='none'; loadBosses();
       toast(r.win?'🏆 MENANG!':'💀 Kalah...');

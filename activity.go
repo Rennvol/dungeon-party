@@ -207,10 +207,6 @@ func handleDungeon(w http.ResponseWriter, r *http.Request) {
 
 // ---------- BOSS — TURN-BASED, state tersimpan ----------
 
-func handleBossList(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, BOSSES)
-}
-
 // POST /api/boss {action:"start"|"attack"|"potion"|"flee", id}
 func handleBossFight(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
@@ -240,6 +236,21 @@ func handleBossFight(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, 400, map[string]string{"err": "aksi gak dikenal"})
 	}
+}
+
+// GET /api/bosses — list boss TERSCALING sesuai kill count player
+func handleBossList(w http.ResponseWriter, r *http.Request) {
+	pid := parseID(r.Header.Get("X-Player-ID"))
+	p, err := loadPlayer(pid)
+	if err != nil {
+		writeJSON(w, 200, BOSSES)
+		return
+	}
+	out := []Boss{}
+	for _, b := range BOSSES {
+		out = append(out, scaleBoss(b, bossKills(p, b.ID)))
+	}
+	writeJSON(w, 200, out)
 }
 
 func findBoss(id string) *Boss {
@@ -314,13 +325,17 @@ func bossAttack(w http.ResponseWriter, p *Player) {
 		logs = append(logs, "🎲 "+itoa(roll)+" → hit "+itoa(int(dmg)))
 	}
 
-	// menang?
+	// menang? — boss scaling anti-farm: kill counter naik, boss berikutnya lebih kuat
 	if bhp <= 0 {
+		k := bossKills(p, boss.ID)
+		bumpKill(p, boss.ID)
 		p.Data["battle"] = nil
 		p.Gold += boss.GoldWin
 		gainXP(p, boss.XPWin)
 		savePlayerData(p)
 		logs = append(logs, "🏆 "+boss.Nama+" DIKALAHKAN! +"+itoa(int(boss.GoldWin))+"g +"+itoa(boss.XPWin)+"xp")
+		nb := scaleBoss(*boss, k+1)
+		logs = append(logs, "⚠️ Boss membangkitkan kekuatan baru! HP "+itoa(nb.HP)+", ATK "+itoa(nb.ATK)+" — hadiah ×1.35")
 		writeJSON(w, 200, map[string]any{"player": p, "log": logs, "win": true})
 		return
 	}

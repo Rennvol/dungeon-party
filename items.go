@@ -206,9 +206,14 @@ func recomputeStats(p *Player) {
 	if f, ok := h["lvl"].(float64); ok {
 		lvl = int(f)
 	}
-	atk := cls.ATK + (lvl-1)*2
-	hp := cls.HP + (lvl-1)*8
-	def := lvl
+	skl := func(id string, def float64) float64 {
+		m, _ := p.Data["skills"].(map[string]any)
+		f, _ := m[id].(float64)
+		return f + def
+	}
+	atk := float64(cls.ATK+(lvl-1)*2) * (1 + 0.06*skl("power_strike", 0))
+	hp := float64(cls.HP+(lvl-1)*8) * (1 + 0.08*skl("vitality", 0))
+	def := lvl + int(skl("iron_skin", 0))
 
 	upg, _ := p.Data["upg"].(map[string]any)
 	for slot, uidV := range h["equip"].(map[string]any) {
@@ -233,13 +238,13 @@ func recomputeStats(p *Player) {
 		lvf, _ := upg[uid].(float64)
 		lv = int(lvf)
 		mul := 1.0 + 0.08*float64(lv)
-		atk += int(float64(it.ATK) * mul)
-		hp += int(float64(it.HP) * mul)
+		atk += float64(it.ATK) * mul
+		hp += float64(it.HP) * mul
 		def += int(float64(it.DEF) * mul)
 		_ = slot
 	}
-	h["atk"], h["hp_max"], h["def"] = atk, hp, def
-	p.Power = atk*2 + hp/10 + def*2 + lvl*5
+	h["atk"], h["hp_max"], h["def"] = int(atk), int(hp), def
+	p.Power = int(atk*2 + hp/10 + float64(def)*2 + float64(lvl)*5)
 }
 
 // POST /api/upgrade {uid} — naikkan lv equipment (+8%/lv), +10 bisa gagal
