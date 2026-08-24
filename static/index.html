@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dungeon Party</title>
+<!-- ponytail: no-store biar update fitur langsung keliatan; ganti ETag kalau trafik naik -->
+<meta http-equiv="Cache-Control" content="no-store">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:#0d0d14;color:#e8e4d8;min-height:100vh;
@@ -475,7 +477,7 @@ async function bAct(skill){
   $('btnAtk').disabled=true; setTimeout(()=>$('btnAtk').disabled=false,600);
   const r=await api('boss',{action:skill});
   if(r.err){ toast('❌ '+r.err); return; }
-  S=r.player; render();
+  applyPlayer(r.player);
   for(const l of r.log) btLog(l);
   updateBattleState(); updSkillBtns();
   if(r.win!==undefined){
@@ -522,7 +524,7 @@ function btLog(t){
 async function usePotion(){
   const r=await api('boss',{action:'potion'});
   if(r.err) return toast('❌ '+r.err);
-  S=r.player; render(); toast(r.msg);
+  applyPlayer(r.player); toast(r.msg);
 }
 
 // save tiap 30 detik — sinkron ke server

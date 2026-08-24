@@ -442,15 +442,16 @@ func bossAttack(w http.ResponseWriter, p *Player, useSkill string) {
 	}
 	bt["cds"], bt["wind"] = cds, float64(windLeft)
 
-	// menang?
+	// menang? — hadiah dari boss TERSCALING (bukan nilai dasar)
 	if bhp <= 0 {
 		k := bossKills(p, boss.ID)
 		bumpKill(p, boss.ID)
+		sb := scaleBoss(*boss, k) // reward sesuai level scaling yang dilawan
 		p.Data["battle"] = nil
-		p.Gold += boss.GoldWin
-		gainXP(p, boss.XPWin)
+		p.Gold += sb.GoldWin
+		gainXP(p, sb.XPWin)
 		savePlayerData(p)
-		logs = append(logs, "🏆 "+boss.Nama+" DIKALAHKAN! +"+itoa(int(boss.GoldWin))+"g +"+itoa(boss.XPWin)+"xp")
+		logs = append(logs, "🏆 "+boss.Nama+" DIKALAHKAN! +"+itoa(int(sb.GoldWin))+"g +"+itoa(sb.XPWin)+"xp")
 		nb := scaleBoss(*boss, k+1)
 		logs = append(logs, "⚠️ Boss membangkitkan kekuatan baru! HP "+itoa(nb.HP)+", ATK "+itoa(nb.ATK)+" — hadiah ×1.35")
 		writeJSON(w, 200, map[string]any{"player": p, "log": logs, "win": true})

@@ -15,6 +15,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// ponytail: statik tanpa cache header — file kecil, 1 user; tambah ETag kalau berat
+
 //go:embed static
 var staticFS embed.FS
 
