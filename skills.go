@@ -88,9 +88,11 @@ func handleSkills(w http.ResponseWriter, r *http.Request) {
 		var cost int64
 		afford := gold >= skillCost(s, lv)
 		can := lv < s.Max && afford
-		if can {
-			cost = skillCost(s, lv)
-			gold -= cost // perkiraan belanja berantai biar list jujur
+		if lv < s.Max {
+			cost = skillCost(s, lv) // tampil jujur walau gak mampu
+			if can {
+				gold -= cost // perkiraan belanja berantai biar list jujur
+			}
 		}
 		out = append(out, map[string]any{
 			"id": s.ID, "nama": s.Nama, "desc": s.Desc,
