@@ -114,19 +114,15 @@ func handleShop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Gold -= item.Harga
-	inv, _ := p.Data["inv"].(map[string]any)
-	if inv == nil {
-		inv = map[string]any{}
+	inv := normInv(p.Data["inv"])
+	if bagUsed(inv) >= bagSlots(p.Data) {
+		writeJSON(w, 400, map[string]string{"err": "tas penuh! Upgrade tas dulu"})
+		return
 	}
-	inv[req.Item] = invCount(inv, req.Item) + 1
+	addItemSrv(inv, req.Item, 1)
 	p.Data["inv"] = inv
 	savePlayerData(p)
 	writeJSON(w, 200, p)
-}
-
-func invCount(inv map[string]any, id string) float64 {
-	v, _ := inv[id].(float64)
-	return v
 }
 
 func savePlayerData(p *Player) {

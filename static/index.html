@@ -66,6 +66,13 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <button class="ghost" onclick="buy('potion_kecil')">🧪 Potion Kecil — 50g</button>
     <button class="ghost" onclick="buy('potion_besar')">🧴 Potion Besar — 180g</button>
   </div>
+  <div class="dungeon" id="bagBox" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div class="dname">🎒 Tas <span id="bagCount" style="color:#c9a227;font-weight:400"></span></div>
+      <button class="ghost" style="width:auto;padding:6px 12px;margin:0" onclick="upgradeBag()" id="bagUpBtn">+5 slot</button>
+    </div>
+    <div id="bagItems" style="font-size:.85rem;color:#aaa;line-height:1.7"></div>
+  </div>
   <div class="log" id="log"></div>
 </div>
 
@@ -113,7 +120,41 @@ async function loadState(){
 }
 function logout(){ localStorage.removeItem('dp_token'); location.reload(); }
 
-// ---------- FASE 1: hero + farm + shop ----------
+// ---------- TAS / INVENTORY ----------
+// Stack rules: potion/material/farm = 1 slot gabung; equipment (weapon/cape/
+// helm/boot/armor) = tiap item 1 slot terpisah.
+// inv format: {stack: {item_id: qty}, equip: [{id, uid}]}
+const EQUIP_KINDS = ['weapon','cape','helm','boot','armor'];
+const BASE_SLOTS = 20;
+
+function bagSlots(){
+  return BASE_SLOTS + (S.data.bag_lv||0)*5;   // upgrade tas: +5 slot/level
+}
+function bagUsed(inv){
+  const stack = inv.stack ? Object.keys(inv.stack).length : 0;
+  const equip = inv.equip ? inv.equip.length : 0;
+  return stack + equip;
+}
+function isEquip(id){
+  // id equipment mulai dgn kind, mis. "wep_", "cape_" (config fase 2)
+  return EQUIP_KINDS.some(k => id.startsWith(k.slice(0,3)));
+}
+function bagFull(inv){
+  return bagUsed(inv) >= bagSlots();
+}
+function addItem(inv, id, qty){
+  if(isEquip(id)){
+    for(let i=0;i<qty;i++){
+      if(bagFull(inv)) return false;
+      inv.equip.push({id, uid: Date.now()+'-'+Math.random().toString(36).slice(2,7)});
+    }
+    return true;
+  }
+  if(!inv.stack[id] && bagFull(inv)) return false;
+  inv.stack[id] = (inv.stack[id]||0) + qty;
+  return true;
+}
+
 function render(){
   const h = S.data && S.data.hero;
   $('gold').textContent='🪙 '+Math.floor(gold).toLocaleString('id');
@@ -124,11 +165,39 @@ function render(){
   }
   $('btnChoose').style.display='none';
   $('heroBox').style.display='block'; $('shopBox').style.display='block';
+  $('bagBox').style.display='block';
   const need = Math.round(50*Math.pow(1.35,h.lvl-1));
   $('hnama').textContent = h.nama || h.class.toUpperCase();
   $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · HP ${h.hp_max} · XP ${h.xp}/${need} · Power ${S.power}`;
   $('xpbar').style.width = Math.min(100, h.xp/need*100)+'%';
+  renderBag();
 }
+
+function renderBag(){
+  const inv = S.data.inv || {stack:{},equip:[]};
+  const used = bagUsed(inv), slots = bagSlots();
+  $('bagCount').textContent = `${used}/${slots}`;
+  const rows = [];
+  for(const [id,q] of Object.entries(inv.stack||{}))
+    rows.push(`<span style="display:inline-block;background:#1c1c2a;border-radius:6px;padding:3px 10px;margin:2px">${ITEM_NAME[id]||id} ×${q}</span>`);
+  for(const e of (inv.equip||[]))
+    rows.push(`<span style="display:inline-block;background:#2a1f33;border-radius:6px;padding:3px 10px;margin:2px;border:1px solid #4a3a5a">${ITEM_NAME[e.id]||e.id}</span>`);
+  $('bagItems').innerHTML = rows.join('') || '<i style="color:#555">Tas kosong — beli potion atau farming buat isi tas</i>';
+  // tombol upgrade: harga ×1.6 per level
+  const lv = S.data.bag_lv||0;
+  let cost = 200; for(let i=0;i<lv;i++) cost = cost*8/5|0;
+  $('bagUpBtn').textContent = `+5 slot (${cost.toLocaleString('id')}g)`;
+  $('bagUpBtn').disabled = gold < cost;
+  $('bagUpBtn').style.opacity = gold < cost ? .45 : 1;
+}
+
+async function upgradeBag(){
+  const r = await api('bag',{action:'upgrade'});
+  if(r.err) return toast('❌ '+r.err);
+  S = r; gold = r.gold;
+  toast(`🎒 Tas di-upgrade! Sekarang ${bagSlots()} slot`); render();
+}
+const ITEM_NAME = {'potion_kecil':'🧪 Potion HP Kecil','potion_besar':'🧴 Potion HP Besar'};
 
 async function showClasses(){
   const list = await fetch('/api/classes').then(r=>r.json());
@@ -196,7 +265,7 @@ window.addEventListener('beforeunload', ()=>{ navigator.sendBeacon && saveNow();
 async function buy(item){
   const r = await api('shop',{item});
   if(r.err) return toast('❌ '+r.err);
-  S = r; gold = r.gold; toast('🛒 '+item.replace('_',' ')+' dibeli ✅'); render();
+  S = r; gold = r.gold; render(); toast('🛒 '+(ITEM_NAME[item]||item)+' dibeli ✅');
 }
 
 if(token) loadState();
