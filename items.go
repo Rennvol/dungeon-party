@@ -26,6 +26,7 @@ var ITEMS = map[string]Item{
 	// ---- MATERIAL (stack) ----
 	"kulit_goblin": {"kulit_goblin", "🟫 Kulit Goblin", "mat", "common", "", 0, 0, 0, nil, 12},
 	"bijih_besi":   {"bijih_besi", "⛏️ Bijih Besi", "mat", "common", "", 0, 0, 0, nil, 20},
+	"herbal":       {"herbal", "🌿 Herbal", "mat", "common", "", 0, 0, 0, nil, 15},
 
 	// ---- WEAPON (per class!) ----
 	"wep_besi":     {"wep_besi", "🗡️ Pedang Besi", "wep", "common", "api", 8, 0, 0, []string{"warrior"}, 150},

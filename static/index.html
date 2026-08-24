@@ -49,16 +49,38 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <span class="gold" id="gold">🪙 0</span>
     <button class="ghost" style="width:auto;padding:6px 12px;margin:0" onclick="logout()">⏏</button>
   </div>
-  <div class="dungeon">
-    <div class="dname">🕳️ Gua Goblin</div>
-    <div class="dsub" id="dstat">Party farming otomatis · 1-3 gold/s</div>
-  </div>
-  <div id="heroBox" style="display:none" class="dungeon">
-    <div class="dname" id="hnama">—</div>
-    <div class="dsub" id="hstat">—</div>
+  <div class="dungeon" id="heroBox" style="display:none">
+    <div class="dname" id="hnama">—</div>    <div class="dsub" id="hstat">—</div>
     <div style="background:#0d0d14;border-radius:8px;height:10px;margin-top:8px;overflow:hidden">
       <div id="xpbar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a227,#f5c542)"></div>
     </div>
+  </div>
+
+  <!-- TAB AKTIVITAS -->
+  <div id="tabs" style="display:none;gap:6px;margin-bottom:10px">
+    <button class="ghost tabbtn" onclick="showTab('garden')" id="tab_garden">🌿 Kebun</button>
+    <button class="ghost tabbtn" onclick="showTab('dungeon')" id="tab_dungeon">⚔️ Dungeon</button>
+    <button class="ghost tabbtn" onclick="showTab('boss')" id="tab_boss">👑 Boss</button>
+  </div>
+  <style>.tabbtn{padding:8px}.tabbtn.active{background:#c9a227;color:#111}</style>
+
+  <div id="pane_garden" class="pane dungeon" style="display:none;text-align:left">
+    <div class="dname">🌿 Kebun Herbal</div>
+    <div class="dsub">Tanaman tumbuh otomatis → panen gold + herbal</div>
+    <div id="gardenInfo" style="margin:10px 0;font-size:.95rem;color:#ccc">—</div>
+    <button id="btnHarvest" onclick="harvest()">🧺 Panen Sekarang</button>
+    <button class="ghost" id="btnGardenUp" onclick="gardenUpgrade()">🌱 Upgrade Kebun</button>
+  </div>
+
+  <div id="pane_dungeon" class="pane dungeon" style="display:none;text-align:left">
+    <div class="dname">⚔️ Gua Goblin</div>
+    <div class="dsub">Dive buat XP & drop loot · cooldown 25 detik</div>
+    <button style="margin-top:12px" id="btnDive" onclick="dive()">⚔️ MULAI DIVE (+2-6 XP)</button>
+    <div id="diveCd" class="dsub" style="margin-top:6px"></div>
+  </div>
+
+  <div id="pane_boss" class="pane dungeon" style="display:none;text-align:left">
+    <div id="bossList"></div>
   </div>
   <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
   <div id="classList"></div>
@@ -166,7 +188,7 @@ function render(){
   }
   $('btnChoose').style.display='none';
   $('heroBox').style.display='block'; $('shopBox').style.display='block';
-  $('bagBox').style.display='block';
+  $('bagBox').style.display='block'; $('tabs').style.display='flex';
   const need = Math.round(50*Math.pow(1.35,h.lvl-1));
   $('hnama').textContent = h.nama || h.class.toUpperCase();
   $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · HP ${h.hp_max} · XP ${h.xp}/${need} · Power ${S.power}`;
@@ -288,15 +310,91 @@ function toast(msg){
   setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),400); },2600);
 }
 
-// idle tick: 1 detik = 1 tick farm (client-side biar mulus, server recompute)
+// idle tick: 1 detik = update tampilan (gold asli dari kebun, XP dari dive)
 setInterval(()=>{
   if($('game').style.display==='none' || !S || !S.data || !S.data.hero) return;
-  const g = 1 + Math.floor(Math.random()*3);   // 1-3 gold
-  gold += g; xpGain += 2;                       // xp 2/tick
-  const h = S.data.hero;                        // preview XP bar
-  h.xp += 2;
   render();
 },1000);
+
+// ---------- TAB & AKTIVITAS (fase 2.5) ----------
+function showTab(t){
+  for(const x of ['garden','dungeon','boss']){
+    $('pane_'+x).style.display = x===t?'block':'none';
+    $('tab_'+x).classList.toggle('active', x===t);
+  }
+  if(t==='garden') refreshGarden();
+  if(t==='boss') loadBosses();
+}
+// kebun: preview gold/herbs menumpuk tiap detik
+let gardenBase={gold:0,herbs:0,at:Date.now(),lv:1};
+async function refreshGarden(){
+  const r = await fetch('/api/garden',{method:'POST',headers:{'Content-Type':'application/json',Authorization:token},body:'{}'}).then(x=>x.json());
+  if(r.err) return toast('❌ '+r.err);
+  gardenBase={gold:r.gold,herbs:r.herbs,at:Date.now(),lv:gardenLv()};
+  const upCost = gardenUpCost(gardenBase.lv);
+  $('btnGardenUp').textContent=`🌱 Upgrade Kebun (${upCost.toLocaleString('id')}g)`;
+  $('btnGardenUp').disabled = gold < upCost;
+  $('btnGardenUp').style.opacity = gold < upCost ? .45 : 1;
+}
+function gardenLv(){ return Math.max(1, Math.floor(S.data.garden_lv||1)); }
+function gardenUpCost(lv){ let c=150; for(let i=1;i<lv;i++) c=c*16/10|0; return c; }
+setInterval(()=>{
+  if($('pane_garden')?.style.display!=='block'||!S) return;
+  const sec=(Date.now()-gardenBase.at)/1000;
+  const g=Math.floor(gardenBase.gold + sec*0.7*gardenBase.lv);
+  const h=Math.floor(gardenBase.herbs + sec/45);
+  $('gardenInfo').innerHTML=`⏳ Menunggu panen: <b style="color:#f5c542">🪙 ${g.toLocaleString('id')}</b> + 🌿 ${h} Herbal`;
+},1000);
+async function harvest(){
+  const r=await api('garden',{action:'collect'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast('🧺 '+r.msg); refreshGarden();
+}
+async function gardenUpgrade(){
+  const r=await api('garden',{action:'upgrade'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast('🌱 '+r.msg);
+}
+
+// dungeon: dive XP dengan cooldown 25s
+async function dive(){
+  const r=await api('dungeon',{dive:'gua_goblin'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast('⚔️ '+r.msg);
+  diveCdUntil=Date.now()+25000; render();
+}
+let diveCdUntil=0;
+setInterval(()=>{
+  const el=$('diveCd'); if(!el||!S||!S.data.hero)return;
+  const left=Math.ceil((diveCdUntil-Date.now())/1000);
+  $('btnDive').disabled = left>0;
+  el.textContent = left>0?`Party istirahat... ${left}s`:'Siap dive!';
+},500);
+
+// boss: list + fight d20
+async function loadBosses(){
+  const list=await fetch('/api/bosses').then(x=>x.json());
+  $('bossList').innerHTML=list.map(b=>{
+    const locked=(S?.data?.hero?.lvl||1)<b.min_lvl;
+    return `<div style="border:1px solid #3a2a4a;border-radius:10px;padding:12px;margin-bottom:8px">
+      <div class="dname">${b.nama} ${locked?'🔒':''}</div>
+      <div class="dsub">🌑 ${b.element} · HP ${b.hp} · ATK ${b.atk} · butuh Lv.${b.min_lvl}</div>
+      <div class="dsub" style="color:#c9a227">Hadiah: 🪙 ${b.gold_win.toLocaleString('id')} + ${b.xp_win} XP</div>
+      <button style="margin-top:8px" ${locked?'disabled':''} onclick="fightBoss('${b.id}')">🎲 TANTANG (d20)</button>
+    </div>`;
+  }).join('');
+}
+async function fightBoss(id){
+  const r=await api('boss',{id});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); 
+  toast(r.win?'🏆 '+r.msg:'💀 '+r.msg);
+  // tampilkan log dadu di modal
+  $('mdBody').innerHTML=`<div class="dname">${r.win?'🏆 MENANG!':'💀 KALAH'}</div>
+    <div style="font-size:.85rem;color:#aaa;margin:10px 0;line-height:1.6">${r.logs.map(l=>'· '+l).join('<br>')}</div>`;
+  $('btnYes').style.display='none';
+  $('modal').style.display='flex';
+}
 
 // save tiap 30 detik — kirim delta gold+xp, server validasi & recompute
 async function saveNow(){

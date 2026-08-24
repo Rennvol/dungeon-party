@@ -36,6 +36,44 @@ type Dungeon struct {
 	XP       int    `json:"xp"`
 }
 
+// KEBUN HERBAL — sumber gold (panen tanaman)
+const (
+	gardenRateGoldPerSec = 0.7 // per detik per lv kebun
+	gardenHerbEverySec   = 45  // tiap 45 detik tumbuh 1 herbal
+	gardenCapHours       = 8
+)
+
+// BOSS — dadu d20 + potion
+type Boss struct {
+	ID      string `json:"id"`
+	Nama    string `json:"nama"`
+	Element string `json:"element"`
+	HP      int    `json:"hp"`
+	ATK     int    `json:"atk"`
+	MinLvl  int    `json:"min_lvl"` // syarat unlock
+	GoldWin int64  `json:"gold_win"`
+	XPWin   int    `json:"xp_win"`
+}
+
+var BOSSES = []Boss{
+	{"raja_goblin", "👑 Raja Goblin", "gelap", 350, 16, 5, 1500, 400},
+}
+
+// ELEMEN: api>alam>listrik>air>api ; cahaya<->gelap
+func elemMult(a, b string) float64 {
+	wheel := map[string]string{"api": "alam", "alam": "listrik", "listrik": "air", "air": "api"}
+	if wheel[a] == b {
+		return 1.5
+	}
+	if wheel[b] == a {
+		return 0.75
+	}
+	if (a == "cahaya" && b == "gelap") || (a == "gelap" && b == "cahaya") {
+		return 1.5
+	}
+	return 1.0
+}
+
 func xpNeed(lvl int) int {
 	base := 50.0
 	for i := 1; i < lvl; i++ {
