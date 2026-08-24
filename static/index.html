@@ -239,28 +239,34 @@ function toast(msg){
   setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(),400); },2600);
 }
 
-// idle tick: 1 detik = 1 tick farm
+// idle tick: 1 detik = 1 tick farm (client-side biar mulus, server recompute)
 setInterval(()=>{
-  if($('game').style.display==='none' || !S || !S.data.hero) return;
+  if($('game').style.display==='none' || !S || !S.data || !S.data.hero) return;
   const g = 1 + Math.floor(Math.random()*3);   // 1-3 gold
   gold += g; xpGain += 2;                       // xp 2/tick
-  const h = S.data.hero;
+  const h = S.data.hero;                        // preview XP bar
   h.xp += 2;
-  const need = Math.round(50*Math.pow(1.35,h.lvl-1));
-  while(h.xp >= need){ /* server recompute saat save */ }
   render();
 },1000);
 
-// save tiap 30 detik — kirim gold+xp, server validasi
+// save tiap 30 detik — kirim delta gold+xp, server validasi & recompute
 async function saveNow(){
-  if(!S) return;
-  // kirim delta ke /api/farm
-  const r = await api('farm',{gold_delta: gold - S.gold, xp_delta: xpGain});
-  if(!r.err){ S = r; gold = r.gold; xpGain = 0; }
+  if(!S || !S.data || !S.data.hero) return;
+  const gd = Math.max(0, Math.floor(gold - (S._syncedGold ?? S.gold)));
+  const xd = Math.max(0, Math.floor(xpGain));
+  if(gd === 0 && xd === 0){ render(); return; }   // gak ada delta, jangan save
+  const r = await api('farm',{gold_delta: gd, xp_delta: xd});
+  if(!r.err){
+    const h = S.data.hero;
+    S = r; S._syncedGold = r.gold; gold = r.gold; xpGain = 0;
+  }
   render();
 }
 setInterval(saveNow, 30000);
-window.addEventListener('beforeunload', ()=>{ navigator.sendBeacon && saveNow(); });
+window.addEventListener('beforeunload', ()=>{ if(S && S.data && S.data.hero) saveNow(); });
+
+// simpan delta farm lokal — refresh/browser mati pun delta tersisa dihitung ulang
+// dari waktu (server clamp by elapsed), jadi gak hilang.
 
 async function buy(item){
   const r = await api('shop',{item});

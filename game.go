@@ -135,7 +135,10 @@ func savePlayerData(p *Player) {
 // Server clamp: max gold_delta = 3 * elapsed sejak last_farm (anti cheat), max 8 jam.
 func handleFarm(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
-	var req struct{ GoldDelta, XPDelta int }
+	var req struct {
+		GoldDelta int `json:"gold_delta"`
+		XPDelta   int `json:"xp_delta"`
+	}
 	json.NewDecoder(r.Body).Decode(&req)
 
 	p, err := loadPlayer(pid)
