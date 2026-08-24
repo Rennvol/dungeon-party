@@ -28,13 +28,51 @@ Pemain → Browser (HTML+JS+DnD) → Go API (:30010) → MariaDB
 
 ## SISTEM INTI YANG DIRANCANG SEJAK AWAL
 
-1. **Power System**
-   - `hero.power = ATK*2 + HP/10 + DEF*3 + skillBonus` (rumus di 1 tempat, server-side)
+0. **Item Database + Class Restriction + Upgrade**
+   - Semua item punya nama unik, id, rarity, stats, dan `class_req`:
+     ```json
+     {"id":"sword_flame_2","nama":"Pedang Api Naga","slot":"weapon",
+      "atk":45,"element":"api","class_req":["warrior"],"rarity":"epic",
+      "upgrade_lv":0,"upgrade_cost":5000}
+     ```
+   - **Equip hanya kalau class cocok** — Pedang Api gak bisa dipake Mage (mage
+     pake staff). Bow → Ranger only, Mace/Hammer → Cleric/Warrior
+   - **Upgrade item:** +1 s/d +15 pakai gold + material (bijih per rarity);
+     tiap level = +8% base stat; +10 ke atas ada chance gagal (turun 1 level,
+     bisa diproteksi pakai Protection Stone dari shop/redeem)
+   - Item count target v1.0: ±120 item (weapon/armor/accessory/consumable/material)
+
+1. **Element System & Combo**
+   - 6 elemen: 🔥Api > 🌿Alam > ⚡Listrik > 💧Air > 🔥(siklus), plus ☀️Cahaya ↔ 🌑Gelap
+     saling kuat
+   - Efektivitas: super effective ×1.5, netral ×1.0, resist ×0.75
+   - Musuh punya element → UI tampil indikator "🔥 vs 🌿 = SUPER!"
+   - **Combo party:** 2+ hero serang musuh dengan elemen berurutan yang membentuk
+     combo (misal Air→Listrik = *Conductive Chain* bonus dmg; Api→Alam = *Wildfire*)
+     — combo table di config, unlock lewat skill tertentu
+   - **Weakness strategi:** dungeon element-locked — party salah elemen = susah
+     clear walau power cukup → dorong player bikin hero/item multi-element
+
+2. **Guild Hall / Markas Party (base building)**
+   - Setiap player punya **Markas** (base personal) sejak fase awal guild:
+     - Slot bangunan: Barracks (kapasitas hero), Kitchen (Cooking lebih cepat),
+       Forge (Blacksmith di rumah), Farm (hasil herb/makanan pasif), Vault
+       (+kapasitas item), Training Dummy (+XP rate)
+     - **Semua bangunan bisa di-upgrade level 1–10**: tiap level naikin efeknya
+       (Farm lv5 = 50 herb/hari)
+     - **Modifikasi bebas oleh user:** pilih layout grid, geser/pindah bangunan
+       (drag & drop!), tema dekorasi (emoji theme pack)
+   - **Guild Hall** (bangunan kolektif): anggota ikut donasi upgrade — perk guild
+     berlaku global buat member
+
+3. **Power System**
+   - `hero.power = ATK*2 + HP/10 + DEF*3 + skillBonus + Σ(item.power)` (rumus di 1 tempat, server-side)
+   - Item power ikut total; upgrade item = power naik
    - Musuh punya power juga. Dungeon butuh min-power buat clear rate 100%
    - Power gap → clear rate turun (d20-style roll internal): `chance = clamp(0.5 + (myP-enemyP)/enemyP * 0.5, 0.05, 0.99)`
    - Ditampilkan di UI: "Party Power 1.240 vs Dungeon 900 ✅"
 
-2. **Story & Dialog Engine**
+4. **Story & Dialog Engine**
    - Cerita per arc (6 arc = 6 stage). Tiap arc punya chapter dialog:
      `config/story.json` → array {speaker, portrait_emoji, text, trigger}
    - Trigger: first-enter-stage, boss-intro, boss-defeat, prestige
@@ -42,20 +80,20 @@ Pemain → Browser (HTML+JS+DnD) → Go API (:30010) → MariaDB
    - Arc contoh: Arc 1 "Bayangan di Gua Goblin" → Arc 6 "Takhta Sang Naga"
    - NPC tetap: Elara si penjual misterius, Gronnak orc pandai besi, Raja Hantu
 
-3. **Redeem Code (admin tools)**
+5. **Redeem Code (admin tools)**
    - Tabel DB: `codes (code PK, type, payload JSON, max_uses, uses, expires_at, created_by)`
-   - Type: gold, item(id+qty), gem, ticket_raid
+   - Type: gold, gem, item(id+qty), raid_ticket, protection_stone
    - Admin panel sederhana (hanya dari IP owner / admin_key): generate code random,
      set payload & limit → kasih code ke player → player input di menu Redeem
    - Contoh: `GOLD500` = 50.000 gold sekali pakai, `TESTALL` = semua item qty 99
 
-4. **Instant Raid**
+6. **Instant Raid**
    - Dungeon yang sudah 100% cleared bisa di-*instant raid*: langsung dapat hasil
      rata-rata tanpa animasi, tapi butuh **Raid Ticket** (drop jarang / beli / redeem)
    - Anti-abuse: cooldown per dungeon + ticket consumption server-side
    - Ini jadi sink utama Raid Ticket + QoL endgame farming
 
-5. **Guild & Leaderboard**
+7. **Guild & Leaderboard**
    - Tabel: `guilds(id, name, desc, leader_id, level, exp)`, `guild_members(guild_id, player_id, role)`
    - Guild perk per level: +% gold, +% drop rate, slot member naik
    - Guild weekly contribution (gold donasi) → guild exp
@@ -135,6 +173,9 @@ Tujuan: bisa maem loop dasarnya.
 - [ ] Tabel loot table per dungeon (config): common 70% / rare 25% / epic 5%
   - item: material (kulit goblin, bijih besi), equipment (pedang besi...), potion drop
 - [ ] Equipment bisa di-equip ke hero (slot: weapon, armor, accessory) → stats nambah
+  **+ class restriction aktif**: item.class_req harus match class hero
+- [ ] **Upgrade item +1 s/d +15** (gold + bijih; +10 ke atas ada fail chance,
+  Protection Stone buat amankan)
 - [ ] Shop lengkap: potion HP, potion stamina, ransel makanan (untuk journey fase 3),
   equipment dasar beli langsung
 - [ ] Sell item (jual loot gak kepake → gold)
@@ -175,6 +216,10 @@ Tujuan: bisa maem loop dasarnya.
 - [ ] **Story engine:** config/story.json — dialog visual-novel per arc
   (first-enter, boss-intro, boss-defeat). NPC: Elara, Gronnak, Raja Hantu.
   Dialog box bawah layar, tap-next, skip-able
+- [ ] **Element system aktif:** 6 elemen (Api/Alam/Listrik/Air/Cahaya/Gelap),
+  siklus kekuatan + super effective/resist ×1.5/×0.75, musuh punya element
+- [ ] **Party combo:** serangan berurutan elemen tertentu = bonus combo dmg
+  (config/combo.json), unlock via skill
 - [ ] Boss fight tiap stage akhir: sekali dive, roll internal vs power gap — crit/miss
 - [ ] **Instant Raid:** dungeon cleared → tombol Raid (butuh Raid Ticket) → hasil
   instan rata-rata ×multiplier guild perk. Cooldown + konsumsi ticket server-side
@@ -198,11 +243,16 @@ Tujuan: bisa maem loop dasarnya.
 
 ---
 
-# FASE 6 — GUILD & LEADERBOARD
+# FASE 6 — GUILD, MARKAS (BASE) & LEADERBOARD
 
 - [ ] Buat guild (biaya gold), invite via nama player, role leader/officer/member
 - [ ] Guild donasi gold harian → guild exp → level naik → perk (+%gold, +%drop,
   slot member)
+- [ ] **Markas / Base personal (drag & drop layout!):**
+  - Grid base + bangunan: Barracks, Kitchen, Forge, Farm, Vault, Training Dummy
+  - Tiap bangunan upgrade lv1–10 (efek makin gede: Farm lv5 = 50 herb/hari)
+  - User bebas **geser/tata ulang bangunan** (pointer DnD) + tema dekorasi emoji
+- [ ] **Guild Hall kolektif:** donasi anggota → level naik → perk global member
 - [ ] Leaderboard halaman khusus: Top 50 global by power / lifetime gold;
   top guild by total member power; posisi player sendiri selalu keliatan
 - [ ] Guild chat sederhana? — TUNDA sampai v1.x (polling 5 detik cukup nanti)
