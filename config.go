@@ -3,17 +3,23 @@ package main
 // Config fase 1 — semua angka balance di sini (nanti dipindah ke config/*.json)
 
 type Class struct {
-	ID   string `json:"id"`
-	Nama string `json:"nama"`
-	HP   int    `json:"hp"`
-	ATK  int    `json:"atk"`
+	ID      string `json:"id"`
+	Nama    string `json:"nama"`
+	HP      int    `json:"hp"`
+	ATK     int    `json:"atk"`
+	Element string `json:"element"`
+	Lore    string `json:"lore"`
 }
 
 var CLASSES = map[string]Class{
-	"warrior": {"warrior", "🛡️ Warrior", 100, 12},
-	"mage":    {"mage", "🧙 Mage", 60, 18},
-	"ranger":  {"ranger", "🏹 Ranger", 80, 15},
-	"cleric":  {"cleric", "✨ Cleric", 90, 10},
+	"warrior": {"warrior", "🛡️ Warrior", 100, 12, "api",
+		"Pejuang garis depan dari kota Benteng Merah. Kehilangan saudaranya saat Gua Goblin runtuh — kini ia turun gunung membawa kapak dan dendam."},
+	"mage": {"mage", "🧙 Mage", 60, 18, "listrik",
+		"Murid menara Arcane yang diusir karena eksperimen terlarang. Badai mengikutinya kemana pun ia melangkah."},
+	"ranger": {"ranger", "🏹 Ranger", 80, 15, "alam",
+		"Pemburu hutan Rimba Akhir. Bicara dengan serigala lebih sering daripada dengan manusia, dan tak pernah meleset."},
+	"cleric": {"cleric", "✨ Cleric", 90, 10, "cahaya",
+		"Imamat Kuil Fajar. Suaranya menenangkan luka — tapi jangan salah, tongkat sucinya sama mematikan dengan doanya."},
 }
 
 var DUNGEONS = map[string]Dungeon{
