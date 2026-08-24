@@ -82,16 +82,20 @@ func handleSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []map[string]any{}
+	gold := p.Gold
 	for _, s := range SKILLS {
 		lv := skillLv(p, s.ID)
-		can := lv < s.Max
 		var cost int64
+		afford := gold >= skillCost(s, lv)
+		can := lv < s.Max && afford
 		if can {
 			cost = skillCost(s, lv)
+			gold -= cost // perkiraan belanja berantai biar list jujur
 		}
 		out = append(out, map[string]any{
 			"id": s.ID, "nama": s.Nama, "desc": s.Desc,
 			"lv": lv, "max": s.Max, "cost": cost, "can": can,
+			"need_gold": !afford && lv < s.Max,
 		})
 	}
 	writeJSON(w, 200, out)

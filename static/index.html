@@ -383,7 +383,9 @@ async function loadSkills(){
       <div class="dsub">${s.desc}</div>
       ${s.can
         ? `<button style="margin-top:6px;padding:6px 12px" onclick="train('${s.id}')">🥋 Latihan — ${s.cost.toLocaleString('id')}g</button>`
-        : `<button disabled style="margin-top:6px;opacity:.5">MAX</button>`}
+        : (s.need_gold
+          ? `<button disabled style="margin-top:6px;opacity:.5">🪙 butuh ${s.cost.toLocaleString('id')}g</button>`
+          : `<button disabled style="margin-top:6px;opacity:.5">MAX</button>`)}
     </div>`).join('');
 }
 async function train(id){
