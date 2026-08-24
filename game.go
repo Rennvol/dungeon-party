@@ -1,0 +1,197 @@
+package main
+
+// Fase 1: pilih class, farm idle, level up, shop potion
+
+import (
+	"encoding/json"
+	"math/rand"
+	"net/http"
+	"time"
+)
+
+func handleClasses(w http.ResponseWriter, r *http.Request) {
+	list := []Class{}
+	for _, c := range CLASSES {
+		list = append(list, c)
+	}
+	writeJSON(w, 200, list)
+}
+
+// POST /api/choose {class:"warrior"} — sekali saja, kunci hero utama
+func handleChoose(w http.ResponseWriter, r *http.Request) {
+	pid := parseID(r.Header.Get("X-Player-ID"))
+	var req struct{ Class string }
+	json.NewDecoder(r.Body).Decode(&req)
+	c, ok := CLASSES[req.Class]
+	if !ok {
+		writeJSON(w, 400, map[string]string{"err": "class gak ada"})
+		return
+	}
+	p, err := loadPlayer(pid)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"err": "player gak ada"})
+		return
+	}
+	if _, taken := p.Data["hero"]; taken {
+		writeJSON(w, 409, map[string]string{"err": "hero udah dipilih"})
+		return
+	}
+	p.Data["hero"] = map[string]any{
+		"class": c.ID, "lvl": 1, "xp": 0,
+		"hp_max": c.HP, "atk": c.ATK,
+	}
+	savePlayerData(p)
+	writeJSON(w, 200, p)
+}
+
+func heroPower(h map[string]any) int {
+	atk, _ := h["atk"].(float64)
+	hp, _ := h["hp_max"].(float64)
+	lvl, _ := h["lvl"].(float64)
+	return int(atk*2 + hp/10 + lvl*5)
+}
+
+func gainXP(p *Player, xp int) {
+	h := p.Data["hero"].(map[string]any)
+	lvl, _ := h["lvl"].(float64)
+	xpNow, _ := h["xp"].(float64)
+	xpNow += float64(xp)
+	for xpNow >= float64(xpNeed(int(lvl))) {
+		xpNow -= float64(xpNeed(int(lvl)))
+		lvl++
+		c := CLASSES[h["class"].(string)]
+		h["hp_max"] = c.HP + int(lvl)*8
+		h["atk"] = c.ATK + int(lvl)*2
+	}
+	h["lvl"], h["xp"] = lvl, xpNow
+	p.Data["hero"] = h
+	p.Power = heroPower(h)
+}
+
+// farm tick — dipanggil client tiap detik via /api/save? TIDAK. Server-side ringan:
+// client hitung sendiri offline-safe, save bawa hasil. Validasi: max 8 jam income.
+func clampOffline(elapsedSec float64) float64 {
+	const cap = 8 * 3600
+	if elapsedSec > cap {
+		return cap
+	}
+	if elapsedSec < 0 {
+		return 0
+	}
+	return elapsedSec
+}
+
+var rng = rand.New(rand.NewSource(1))
+
+func farmGold(d Dungeon) int { return d.GoldMin + rand.Intn(d.GoldMax-d.GoldMin+1) }
+
+// POST /api/shop {item:"potion_kecil"} — beli
+var SHOP = map[string]struct {
+	Nama string `json:"nama"`
+	Harga int64  `json:"harga"`
+}{
+	"potion_kecil": {"🧪 Potion HP Kecil (+30)", 50},
+	"potion_besar": {"🧴 Potion HP Besar (+80)", 180},
+}
+
+func handleShop(w http.ResponseWriter, r *http.Request) {
+	pid := parseID(r.Header.Get("X-Player-ID"))
+	var req struct{ Item string }
+	json.NewDecoder(r.Body).Decode(&req)
+	item, ok := SHOP[req.Item]
+	if !ok {
+		// list shop
+		writeJSON(w, 200, SHOP)
+		return
+	}
+	p, err := loadPlayer(pid)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"err": "gak ada"})
+		return
+	}
+	if p.Gold < item.Harga {
+		writeJSON(w, 400, map[string]string{"err": "gold kurang"})
+		return
+	}
+	p.Gold -= item.Harga
+	inv, _ := p.Data["inv"].(map[string]any)
+	if inv == nil {
+		inv = map[string]any{}
+	}
+	inv[req.Item] = invCount(inv, req.Item) + 1
+	p.Data["inv"] = inv
+	savePlayerData(p)
+	writeJSON(w, 200, p)
+}
+
+func invCount(inv map[string]any, id string) float64 {
+	v, _ := inv[id].(float64)
+	return v
+}
+
+func savePlayerData(p *Player) {
+	dj, _ := json.Marshal(p.Data)
+	db.Exec(`UPDATE players SET gold=?, data=?, power=? WHERE id=?`,
+		p.Gold, string(dj), p.Power, p.ID)
+}
+
+// POST /api/farm {gold_delta, xp_delta} — client kirim hasil farm 30 detik.
+// Server clamp: max gold_delta = 3 * elapsed sejak last_farm (anti cheat), max 8 jam.
+func handleFarm(w http.ResponseWriter, r *http.Request) {
+	pid := parseID(r.Header.Get("X-Player-ID"))
+	var req struct{ GoldDelta, XPDelta int }
+	json.NewDecoder(r.Body).Decode(&req)
+
+	p, err := loadPlayer(pid)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"err": "gak ada"})
+		return
+	}
+	h, ok := p.Data["hero"].(map[string]any)
+	if !ok {
+		writeJSON(w, 400, map[string]string{"err": "belum ada hero"})
+		return
+	}
+	_ = h // hero ada; detail stat dipake gainXP
+
+	// hitung batas wajar dari waktu sejak farm terakhir (disimpan di data.farm_at unix)
+	now := time.Now().Unix()
+	last, _ := toF(p.Data["farm_at"])
+	if last == 0 {
+		last = float64(now - 30)
+	}
+	elapsed := now - int64(last)
+	if elapsed > 8*3600 {
+		elapsed = 8 * 3600 // offline cap
+	}
+	maxGold := elapsed * 3 // dungeon max 3 gold/tick
+	gd := int64(req.GoldDelta)
+	if gd < 0 {
+		gd = 0
+	}
+	if gd > maxGold {
+		gd = maxGold
+	}
+	p.Gold += gd
+
+	// XP: max 2/tick
+	maxXP := int(elapsed) * 2
+	xd := req.XPDelta
+	if xd < 0 {
+		xd = 0
+	}
+	if xd > maxXP {
+		xd = maxXP
+	}
+	if xd > 0 {
+		gainXP(p, xd)
+	}
+	p.Data["farm_at"] = now
+	savePlayerData(p)
+	writeJSON(w, 200, p)
+}
+
+func toF(v any) (float64, bool) {
+	f, ok := v.(float64)
+	return f, ok
+}

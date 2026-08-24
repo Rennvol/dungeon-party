@@ -49,8 +49,12 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("/api/register", handleRegister)
 	mux.HandleFunc("/api/login", handleLogin)
+	mux.HandleFunc("/api/classes", handleClasses)
+	mux.HandleFunc("/api/choose", auth(handleChoose))
 	mux.HandleFunc("/api/state", auth(handleState))
 	mux.HandleFunc("/api/save", auth(handleSave))
+	mux.HandleFunc("/api/shop", auth(handleShop))
+	mux.HandleFunc("/api/farm", auth(handleFarm))
 
 	addr := ":30512"
 	log.Println("Dungeon Party listening on", addr)

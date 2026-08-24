@@ -45,20 +45,35 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   </div>
   <div class="dungeon">
     <div class="dname">🕳️ Gua Goblin</div>
-    <div class="dsub">Party farming otomatis · 1-3 gold / tick</div>
+    <div class="dsub" id="dstat">Party farming otomatis · 1-3 gold / tick</div>
+  </div>
+  <div id="heroBox" style="display:none" class="dungeon">
+    <div class="dname" id="hnama">—</div>
+    <div class="dsub" id="hstat">—</div>
+    <div style="background:#0d0d14;border-radius:8px;height:10px;margin-top:8px;overflow:hidden">
+      <div id="xpbar" style="height:100%;width:0%;background:linear-gradient(90deg,#c9a227,#f5c542)"></div>
+    </div>
+  </div>
+  <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
+  <div id="classList"></div>
+  <div id="shopBox" style="display:none">
+    <button class="ghost" onclick="buy('potion_kecil')">🧪 Potion Kecil — 50g</button>
+    <button class="ghost" onclick="buy('potion_besar')">🧴 Potion Besar — 180g</button>
   </div>
   <div class="log" id="log"></div>
 </div>
 
 <script>
 let token = localStorage.getItem('dp_token');
+let S = null;          // state player dari server
+let gold = 0, xpGain = 0;
 const $ = id => document.getElementById(id);
 const api = (path, body) => fetch('/api/'+path, {
   method:'POST', headers:{'Content-Type':'application/json', Authorization: token||''},
   body: JSON.stringify(body||{})
 }).then(r=>r.json());
 
-function log(msg){ const l=$('log'); l.innerHTML = msg+'<br>'+l.innerHTML; }
+function log(msg){ const l=$('log'); l.innerHTML = msg+'<br>'+l.innerHTML.slice(0,2000); }
 
 async function doRegister(){
   const r = await api('register',{user:$('user').value.trim(),pass:$('pass').value});
@@ -77,17 +92,68 @@ async function afterAuth(r){
 async function loadState(){
   const r = await fetch('/api/state',{headers:{Authorization:token}}).then(r=>r.json());
   if(r.err) return logout();
+  S = r; gold = r.gold;
   $('auth').style.display='none'; $('game').style.display='block';
-  $('pname').textContent='⚔️ '+r.username; $('gold').textContent='🪙 '+r.gold.toLocaleString('id');
+  $('pname').textContent='⚔️ '+r.username; render();
 }
 function logout(){ localStorage.removeItem('dp_token'); location.reload(); }
 
-// idle tick lokal + save tiap 30 detik
-setInterval(()=>{
-  if($('game').style.display!=='none'){
-    // placeholder fase1: farm logic di sini
+// ---------- FASE 1: hero + farm + shop ----------
+function render(){
+  const h = S.data && S.data.hero;
+  $('gold').textContent='🪙 '+Math.floor(gold).toLocaleString('id');
+  if(!h){
+    $('btnChoose').style.display='block';
+    $('heroBox').style.display='none'; $('shopBox').style.display='none';
+    return;
   }
+  $('btnChoose').style.display='none';
+  $('heroBox').style.display='block'; $('shopBox').style.display='block';
+  const need = Math.round(50*Math.pow(1.35,h.lvl-1));
+  $('hnama').textContent = h.nama || h.class.toUpperCase();
+  $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · HP ${h.hp_max} · XP ${h.xp}/${need} · Power ${S.power}`;
+  $('xpbar').style.width = Math.min(100, h.xp/need*100)+'%';
+}
+
+async function showClasses(){
+  const list = await fetch('/api/classes').then(r=>r.json());
+  $('classList').innerHTML = list.map(c=>
+    `<button class="ghost" onclick="choose('${c.id}')">${c.nama} — HP ${c.hp} / ATK ${c.atk}</button>`).join('');
+}
+async function choose(cls){
+  const r = await api('choose',{class:cls});
+  if(r.err) return log('❌ '+r.err);
+  S = r; gold = r.gold; log(`✨ Hero dipilih!`); render();
+}
+
+// idle tick: 1 detik = 1 tick farm
+setInterval(()=>{
+  if($('game').style.display==='none' || !S || !S.data.hero) return;
+  const g = 1 + Math.floor(Math.random()*3);   // 1-3 gold
+  gold += g; xpGain += 2;                       // xp 2/tick
+  const h = S.data.hero;
+  h.xp += 2;
+  const need = Math.round(50*Math.pow(1.35,h.lvl-1));
+  while(h.xp >= need){ /* server recompute saat save */ }
+  render();
 },1000);
+
+// save tiap 30 detik — kirim gold+xp, server validasi
+async function saveNow(){
+  if(!S) return;
+  // kirim delta ke /api/farm
+  const r = await api('farm',{gold_delta: gold - S.gold, xp_delta: xpGain});
+  if(!r.err){ S = r; gold = r.gold; xpGain = 0; }
+  render();
+}
+setInterval(saveNow, 30000);
+window.addEventListener('beforeunload', ()=>{ navigator.sendBeacon && saveNow(); });
+
+async function buy(item){
+  const r = await api('shop',{item});
+  if(r.err) return log('❌ '+r.err);
+  S = r; gold = r.gold; log('🛒 Beli '+item+' ✅'); render();
+}
 
 if(token) loadState();
 </script>
