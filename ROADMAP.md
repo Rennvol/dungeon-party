@@ -187,43 +187,34 @@ Tujuan: bisa maem loop dasarnya.
 
 # FASE 3 — JOURNEY SURVIVAL + SKILL TREE (identitas game ini)
 
-- [ ] **Journey mechanic:** dungeon jauh butuh waktu tempuh (misal 30 menit real time).
-  Selama journey party nguras bekal: 1 makanan + 1 potion per X menit.
-  - Bekal habis → HP party gerus terus → bisa gagal dive (gold dikit, no drop)
-  - Sebelum berangkat: checklist "bekal cukup?" — Cooking skill bikin bekal bagus
-- [ ] **Skill tree per class** + skill umum:
-  - Combat: Warrior(Berserk, Taunt), Mage(Fireball, Arcane Intellect), Ranger(multishot),
-    Cleric(Heal, Bless)
-  - **Non-combat: Cooking** (bikin bekal dari hasil hunt; level naik = bekal lebih awet),
-    Herbalist (bikin potion dari herb drop), Blacksmith (repair durability, enchant)
-  - Skill belajar pake gold + XP; level skill 1-10
+- [x] **Journey mechanic:** ekspedisi real-time 15/30/60 menit (`journey.go`), bekal 🍞+🧪 per jeda makan,
+  habis bekal → HP gerus, Cooking bikin bekal awet & yield masak naik
+- [x] **Skill tree** (Dojo): power_strike/iron_skin/vitality/cooking — gold-based, lv max 8-10
+  (combat skill dipakai di boss fight d20; non-combat cooking dipakai journey & craft)
 - [ ] Hero rekrutan (party 3): slot tank/DPS/support — komposisi pengaruh clear rate
 - [ ] Drag & drop tahap 1: drag equipment → hero portrait; drag hero → slot party
-- **Selesai kalau:** masak 3 roti → journey 30 menit → pulang bawa loot epic
 - Commit tag: `fase3`
 
 ---
 
 # FASE 4 — STAGE, STORY, POWER & RAID
 
-- [ ] 6 stage dungeon (syarat unlock campuran: total gold lifetime / party lv /
+- [x] 6 stage dungeon (syarat unlock campuran: total gold lifetime / party lv /
     item langka / boss kill):
-  1. Gua Goblin (awal) · 2. Kuburan Terkutuk (500g) · 3. Rawa Bandit (25rb,
-     1 epic) · 4. Kastil Necromancer (boss kill st.3) · 5. Kawah Naga (100rb) ·
-  6. Lair Naga Purba (prestige 1x)
-- [ ] **Power system aktif:** hero.power dihitung server, dungeon punya enemy power,
-  UI tampilkan perbandingan party power vs dungeon power + clear rate %
-- [ ] **Story engine:** config/story.json — dialog visual-novel per arc
-  (first-enter, boss-intro, boss-defeat). NPC: Elara, Gronnak, Raja Hantu.
-  Dialog box bawah layar, tap-next, skip-able
-- [ ] **Element system aktif:** 6 elemen (Api/Alam/Listrik/Air/Cahaya/Gelap),
-  siklus kekuatan + super effective/resist ×1.5/×0.75, musuh punya element
-- [ ] **Party combo:** serangan berurutan elemen tertentu = bonus combo dmg
-  (config/combo.json), unlock via skill
-- [ ] Boss fight tiap stage akhir: sekali dive, roll internal vs power gap — crit/miss
-- [ ] **Instant Raid:** dungeon cleared → tombol Raid (butuh Raid Ticket) → hasil
-  instan rata-rata ×multiplier guild perk. Cooldown + konsumsi ticket server-side
-- [ ] Prestige: reset gold/level → Soul Crystal (×income permanen) + syarat stage 6
+  1. Gua Goblin (awal) · 2. Tambang Runtuh · 3. Neraka Kegelapan ·
+  4. Kuburan Terkutuk (500g) · 5. Rawa Bandit (25rb + Ratu Laba-laba ×3) ·
+  6. Kawah Naga (100rb + Naga Bara ×5)
+- [x] **Power system aktif:** p.Power server-side, dungeon punya enemy_pow,
+  UI tampilkan party power vs dungeon power + clear rate %
+- [x] **Story engine:** STORY map di stage.go — dialog first-dive per stage,
+  box visual-novel bawah layar, tap-next. NPC: Elara, Gronnak, Raja Hantu
+- [x] **Element system aktif:** siklus Api>Alam>Listrik>Air>Api (×1.5/×0.75),
+  cahaya↔gelap; hero vs dungeon element mempengaruhi gold raid
+- [ ] **Party combo:** butuh party 3 hero (fase lanjutan)
+- [x] Boss fight tiap tier: d20 contest, scaling per kill (anti farm)
+- [x] **Instant Raid:** 🎟️ Tiket Raid (toko 400g) → hasil instan ×4 XP/gold +
+  drop dobel; cooldown 120s server-side; income ×prestige
+- [x] Prestige: Lv.30+ → reset lvl/gold → ♻️×N (+25% income permanen per prestige)
 - [ ] Diamond dari first-clear stage → upgrade QoL permanen
 - [ ] Drag & drop tahap 2: drag hero ke dungeon card buat assign dive
 - **Commit tag: `fase4`**
