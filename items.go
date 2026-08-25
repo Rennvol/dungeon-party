@@ -55,6 +55,12 @@ var ITEMS = map[string]Item{
 
 	// ---- TIKET ----
 	"raid_ticket": {"raid_ticket", "🎟️ Tiket Raid Instan", "mat", "rare", "", 0, 0, 0, nil, 400},
+
+	// ---- ONE-ONLY SET (redeem admin, grade tertinggi) ----
+	"god_sword": {"god_sword", "⚔️ Pedang Dewa Rennvol", "wep", "legendary", "cahaya", 999, 0, 0, nil, 999999},
+	"god_arm":   {"god_arm", "🛡️ Zirah Dewa Rennvol", "arm", "legendary", "cahaya", 0, 999, 999999999999, nil, 999999},
+	"god_boot":  {"god_boot", "👢 Sepatu Dewa Rennvol", "boo", "legendary", "gelap", 999, 999, 0, nil, 999999},
+	"god_cape":  {"god_cape", "🧣 Cape Dewa Rennvol", "cap", "legendary", "cahaya", 999, 999, 0, nil, 999999},
 }
 
 var RARITY_COLOR = map[string]string{
