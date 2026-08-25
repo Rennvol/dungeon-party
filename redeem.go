@@ -57,9 +57,11 @@ func handleAdminCodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Type == "item" {
-		if _, ok := ITEMS[req.Value]; !ok {
-			writeJSON(w, 400, map[string]string{"err": "item id gak ada"})
-			return
+		if req.Value != "rare_all" {
+			if _, ok := ITEMS[req.Value]; !ok {
+				writeJSON(w, 400, map[string]string{"err": "item id gak ada"})
+				return
+			}
 		}
 		if req.Qty < 1 {
 			req.Qty = 1
@@ -181,6 +183,27 @@ func handleRedeem(w http.ResponseWriter, r *http.Request) {
 		p.LifetimeGold += n
 		msg = "🪙 +" + itoa(int(n)) + " gold"
 	case "item":
+		// payload spesial "rare_all:qty" = semua item rare+ (equip 1 pcs, stack sesuai qty)
+		if strings.HasPrefix(payload, "rare_all") {
+			qty := 1
+			if i := strings.LastIndex(payload, ":"); i > 0 {
+				if v, e := strconv.ParseInt(payload[i+1:], 10, 64); e == nil && v > 0 {
+					qty = int(v)
+				}
+			}
+			names := []string{}
+			inv := normInv(p.Data["inv"])
+			for id, it := range ITEMS {
+				if it.Rarity != "rare" && it.Rarity != "epic" && it.Rarity != "legendary" {
+					continue
+				}
+				addItemSrv(inv, id, qty)
+				names = append(names, it.Nama)
+			}
+			p.Data["inv"] = inv
+			msg = "🎁 " + itoa(len(names)) + " item langka ×" + itoa(qty)
+			break
+		}
 		qty := 1 // qty disimpan di suffix payload "item_id:qty"
 		itemID := payload
 		if i := strings.LastIndex(payload, ":"); i > 0 {
