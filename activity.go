@@ -227,8 +227,9 @@ func writeBusy(w http.ResponseWriter, wkt string) {
 func handleDungeon(w http.ResponseWriter, r *http.Request) {
 	pid := parseID(r.Header.Get("X-Player-ID"))
 	var req struct {
-		Dive string `json:"dive"`
-		Raid string `json:"raid"` // "on" | "off" — auto raid
+		Dive    string `json:"dive"`
+		Raid    string `json:"raid"`    // "on" | "off" — auto raid
+		Instant string `json:"instant"` // dungeon id → raid instan (tiket)
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
@@ -261,6 +262,11 @@ func handleDungeon(w http.ResponseWriter, r *http.Request) {
 		writeBusy(w, "raid manual")
 		return
 	}
+	// 🎟️ raid instan via /api/dungeon {instant:"id"} — tiket dari toko
+	if req.Instant != "" {
+		instantRaid(w, p, req.Instant)
+		return
+	}
 	d, ok := DUNGEONS[req.Dive]
 	if !ok {
 		writeJSON(w, 400, map[string]string{"err": "dungeon gak ada"})
@@ -288,12 +294,37 @@ func handleDungeon(w http.ResponseWriter, r *http.Request) {
 	h["hp"] = cur - mx*0.08
 	p.Data["last_dive"] = float64(now)
 
+	// POWER & CLEAR RATE: roll internal — power rendah = bisa gagal (XP/gold setengah)
+	myP := p.Power
+	chance := clearChance(myP, d.EnemyPow)
+	success := rand.Intn(100) < int(chance*100)
+
 	xp := d.XP * (1 + rand.Intn(3))
+	gold := int64(0)
+	if success {
+		gold = int64(float64(farmGold(d)) * incomeMult(p) * elemMult(CLASSES[h["class"].(string)].Element, d.Element))
+		p.Gold += gold
+	} else {
+		xp /= 2 // gagal dive — XP sedikit, no gold/drop
+	}
 	gainXP(p, xp)
-	msg := "⚔️ Raid " + d.Nama + ": +" + itoa(xp) + " XP"
+	msg := ""
+	if !success {
+		msg = "⚔️ " + d.Nama + ": party kewalahan... mundur (+ " + itoa(xp) + " XP)"
+	} else {
+		msg = "⚔️ Raid " + d.Nama + ": +" + itoa(xp) + " XP"
+		if gold > 0 {
+			msg += " +" + itoa(int(gold)) + "g"
+		}
+	}
+	if story := storyFor(p, req.Dive); story != nil {
+		for _, s := range story {
+			msg += "\n📖 " + s
+		}
+	}
 
 	drops := []string{}
-	if rand.Intn(100) < d.DropPct {
+	if success && rand.Intn(100) < d.DropPct {
 		id := rollLoot()
 		if id != "" {
 			if isEquipID(id) {

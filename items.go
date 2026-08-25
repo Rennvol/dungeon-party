@@ -52,6 +52,9 @@ var ITEMS = map[string]Item{
 
 	// ---- BEKAL JOURNEY ----
 	"bekal": {"bekal", "🍞 Roti Panggang (bekal)", "mat", "common", "", 0, 0, 0, nil, 40},
+
+	// ---- TIKET ----
+	"raid_ticket": {"raid_ticket", "🎟️ Tiket Raid Instan", "mat", "rare", "", 0, 0, 0, nil, 400},
 }
 
 var RARITY_COLOR = map[string]string{

@@ -29,6 +29,7 @@ type Player struct {
 	Data         map[string]any `json:"data"`
 	Power        int            `json:"power"`
 	LifetimeGold int64          `json:"lifetime_gold"`
+	Prestige     int            `json:"prestige"`
 }
 
 func main() {
@@ -69,6 +70,7 @@ func main() {
 	mux.HandleFunc("/api/sell", auth(handleSell))
 	mux.HandleFunc("/api/mine", auth(handleMine))
 	mux.HandleFunc("/api/journey", auth(handleJourney))
+	mux.HandleFunc("/api/prestige", auth(handlePrestige))
 
 	addr := ":30512"
 	log.Println("Dungeon Party listening on", addr)
@@ -169,8 +171,8 @@ func auth(next http.HandlerFunc) http.HandlerFunc {
 func loadPlayer(pid int64) (*Player, error) {
 	p := &Player{}
 	var data []byte
-	err := db.QueryRow(`SELECT id, username, gold, data, power, lifetime_gold FROM players WHERE id=?`, pid).
-		Scan(&p.ID, &p.Username, &p.Gold, &data, &p.Power, &p.LifetimeGold)
+	err := db.QueryRow(`SELECT id, username, gold, data, power, lifetime_gold, prestige FROM players WHERE id=?`, pid).
+		Scan(&p.ID, &p.Username, &p.Gold, &data, &p.Power, &p.LifetimeGold, &p.Prestige)
 	if err != nil {
 		return nil, err
 	}

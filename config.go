@@ -23,9 +23,12 @@ var CLASSES = map[string]Class{
 }
 
 var DUNGEONS = map[string]Dungeon{
-	"gua_goblin":   {ID: "gua_goblin", Nama: "🕳️ Gua Goblin", MinLvl: 1, XP: 2, DropPct: 15},
-	"tambang_runtuh": {ID: "tambang_runtuh", Nama: "⛏️ Tambang Runtuh", MinLvl: 5, XP: 8, DropPct: 35},
-	"neraka_kegelapan": {ID: "neraka_kegelapan", Nama: "💀 Neraka Kegelapan", MinLvl: 12, XP: 22, DropPct: 60},
+	"gua_goblin":       {ID: "gua_goblin", Nama: "🕳️ Gua Goblin", MinLvl: 1, XP: 2, DropPct: 15, Element: "gelap", EnemyPow: 40},
+	"tambang_runtuh":   {ID: "tambang_runtuh", Nama: "⛏️ Tambang Runtuh", MinLvl: 5, XP: 8, DropPct: 35, Element: "alam", EnemyPow: 120},
+	"neraka_kegelapan": {ID: "neraka_kegelapan", Nama: "💀 Neraka Kegelapan", MinLvl: 12, XP: 22, DropPct: 60, Element: "gelap", EnemyPow: 320},
+	"kuburan_terkutuk": {ID: "kuburan_terkutuk", Nama: "🪦 Kuburan Terkutuk", MinLvl: 18, XP: 45, DropPct: 65, Element: "gelap", EnemyPow: 650, UnlockGold: 500},
+	"rawa_bandit":      {ID: "rawa_bandit", Nama: "🐊 Rawa Bandit", MinLvl: 25, XP: 90, DropPct: 70, Element: "air", EnemyPow: 1300, UnlockGold: 25000, UnlockBoss: "ratu_labalaba", UnlockBossN: 3},
+	"lahar_naga":       {ID: "lahar_naga", Nama: "🌋 Kawah Naga", MinLvl: 32, XP: 180, DropPct: 80, Element: "api", EnemyPow: 2600, UnlockGold: 100000, UnlockBoss: "naga_bara", UnlockBossN: 5},
 }
 
 type Dungeon struct {
@@ -37,6 +40,13 @@ type Dungeon struct {
 	GoldMax  int    `json:"gold_max"`
 	XP       int    `json:"xp"`
 	DropPct  int    `json:"drop_pct"`
+	Element  string `json:"element,omitempty"`
+	EnemyPow int    `json:"enemy_pow"` // power musuh buat clear-rate
+	// unlock requirements (0/kosong = skip)
+	UnlockGold   int64  `json:"unlock_gold,omitempty"`
+	UnlockBoss   string `json:"unlock_boss,omitempty"`
+	UnlockBossN  int    `json:"unlock_boss_n,omitempty"`
+	PrestigeReq  int    `json:"prestige_req,omitempty"`
 }
 
 // KEBUN HERBAL — sumber gold (panen tanaman)

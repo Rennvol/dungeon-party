@@ -87,11 +87,12 @@ func farmGold(d Dungeon) int { return d.GoldMin + rand.Intn(d.GoldMax-d.GoldMin+
 
 // POST /api/shop {item} — beli pakai gold; {item, pay:"herbal"} — tukar herbal
 var SHOP = map[string]struct {
-	Nama string `json:"nama"`
+	Nama  string `json:"nama"`
 	Harga int64  `json:"harga"`
 }{
 	"potion_kecil": {"🧪 Potion HP Kecil (+30)", 50},
 	"potion_besar": {"🧴 Potion HP Besar (+80)", 180},
+	"raid_ticket":  {"🎟️ Tiket Raid Instan", 400},
 }
 
 // tukar herbal → potion (resep alchemy)

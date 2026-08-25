@@ -56,6 +56,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <div class="barwrap"><div id="xpbar"></div><span id="xptxt"></span></div>
     <div class="barwrap hp"><div id="hpbar"></div><span id="hptxt"></span></div>
     <button class="ghost" style="margin-top:6px;padding:5px 10px" onclick="usePotion()">🧪 Pakai Potion</button>
+    <button class="ghost" style="margin-top:6px;padding:5px 10px;color:#ba68c8;display:none" id="btnPrestige" onclick="doPrestige()">♻️ PRESTIGE</button>
   </div>
   <style>
     .barwrap{position:relative;background:#0d0d14;border-radius:8px;height:16px;margin-top:6px;overflow:hidden}
@@ -92,6 +93,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <div id="dgList" style="margin-top:10px"></div>
     <button id="btnDive" onclick="dive()" class="ghost" style="width:100%;margin-top:8px;padding:9px">⚔️ RAID SEKALI (manual)</button>
     <div id="diveCd" class="dsub" style="margin-top:4px"></div>
+    <button id="btnInstant" onclick="instantRaid()" class="ghost" style="width:100%;margin-top:6px;padding:8px;color:#7ec850">🎟️ RAID INSTAN (tiket ×1)</button>
     <button id="btnRaid" onclick="toggleRaid()" class="ghost" style="width:100%;margin-top:10px;padding:10px">⚔️ AKTIFKAN AUTO RAID</button>
     <div id="raidInfo" class="dsub" style="margin-top:6px;text-align:center"></div>
     <div id="raidLogBox" style="margin-top:10px;background:#120e1a;border:1px solid #3a2a4a;border-radius:8px;padding:8px;max-height:180px;overflow:auto;font-size:12px;display:none">
@@ -145,6 +147,10 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
       <button class="ghost" style="padding:5px 10px;color:#7ec850" onclick="buyHerbal('potion_besar')">🌿12</button></div>
     </div>
     <div class="dsub" id="herbalCount" style="margin-top:10px"></div>
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div><b>🎟️ Tiket Raid Instan</b><div class="dsub">400g · hasil instan ×4 tanpa roll dadu (cd 2m)</div></div>
+      <button style="padding:5px 10px" onclick="buy('raid_ticket')">Beli</button>
+    </div>
     <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
       <div><b>🍞 Roti Panggang (bekal)</b><div class="dsub">Craft: 🌿3 + 🟫2 · buat ekspedisi</div></div>
       <button class="ghost" style="padding:5px 10px;color:#7ec850" onclick="craftBekal()">🍳 Masak</button>
@@ -215,6 +221,14 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <div id="mdBody"></div>
     <button id="btnYes">✔ Pilih Hero Ini</button>
     <button class="ghost" onclick="mdClose()">Batal</button>
+  </div>
+</div>
+
+<!-- Story dialog visual-novel (fase 4) -->
+<div id="storyBox" onclick="STORYQ.shift();storyNext()" style="display:none;position:fixed;left:0;right:0;bottom:0;background:#16161fee;border-top:2px solid #c9a227;padding:16px;z-index:97;cursor:pointer">
+  <div style="max-width:420px;margin:0 auto">
+    <div id="storyText" style="font-style:italic;color:#e8e4d8;line-height:1.6"></div>
+    <div class="dsub" style="margin-top:8px;text-align:right">tap buat lanjut ▸</div>
   </div>
 </div>
 
@@ -304,7 +318,8 @@ function render(){
   $('herbalCount').textContent = `🌿 Herbal di tas: ${hb} — tukar jadi potion tanpa gold!`;
   const need = Math.round(50*Math.pow(1.35,h.lvl-1));
   $('hnama').textContent = h.nama || h.class.toUpperCase();
-  $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · DEF ${h.def||0} · Power ${S.power}`;
+  $('hstat').textContent = `Lv.${h.lvl} · ATK ${h.atk} · DEF ${h.def||0} · Power ${S.power}` + (S.prestige?` · ♻️×${S.prestige}`:'');
+  $('btnPrestige').style.display = h.lvl>=30 ? 'inline-block' : 'none';
   const hpPct = Math.max(0, Math.min(100, (h.hp ?? h.hp_max)/h.hp_max*100));
   $('hpbar').style.width = hpPct+'%';
   $('hptxt').textContent = `❤️ ${Math.round(h.hp ?? h.hp_max)}/${h.hp_max}`;
@@ -540,11 +555,16 @@ async function loadDungeons(){
   if(!DG_CACHE) DG_CACHE = await fetch('/api/items?type=dungeons',{headers:{Authorization:token}}).then(x=>x.json());
   const lvl = S?.data?.hero?.lvl||1;
   const on = !!S.data.raid_on;
+  const EL = {api:'🔥', alam:'🌿', listrik:'⚡', air:'💧', cahaya:'☀️', gelap:'🌑'};
+  const myP = S.power||0;
   $('dgList').innerHTML = DG_CACHE.map(d=>{
     const locked = lvl < d.min_lvl;
+    const ch = Math.max(5, Math.min(99, Math.round((0.5 + (myP-(d.enemy_pow||0))/(d.enemy_pow||1)*0.5)*100)));
+    const el = d.element ? ` ${EL[d.element]||d.element}` : '';
     return `<div style="border:1px solid ${raidDg===d.id?'#c9a227':'#2a3a4a'};border-radius:10px;padding:10px;margin-bottom:8px;${locked?'opacity:.5':''}">
-      <b>${d.nama}</b> ${locked?`🔒 butuh Lv.${d.min_lvl}`:''}
-      <div class="dsub">+${d.xp}-${d.xp*3} XP · drop ${d.drop_pct}% · cooldown 25s</div>
+      <b>${d.nama}${el}</b> ${locked?`🔒 butuh Lv.${d.min_lvl}`:''}
+      <div class="dsub">+${d.xp}-${d.xp*3} XP · drop ${d.drop_pct}% · ⚔️ Power musuh ${d.enemy_pow||'?'}</div>
+      <div class="dsub" style="color:${ch>=80?'#2ecc71':ch>=50?'#f5c542':'#e74c3c'}">Clear rate: ${ch}% (party power ${myP.toLocaleString('id')})</div>
       ${locked?'':`<button class="ghost" style="margin-top:6px;padding:4px 12px" onclick="pickDG('${d.id}')">${raidDg===d.id?'✅ dipilih':'pilih'}</button>`}
     </div>`;
   }).join('');
@@ -585,9 +605,30 @@ async function dive(){
   const r=await api('dungeon',{dive:raidDg});
   if(r.err) return toast('❌ '+r.err);
   applyPlayer(r.player);
-  toast('⚔️ '+r.msg);
+  toast('⚔️ '+(r.msg||'').split('\n')[0]);
+  for(const l of (r.msg||'').split('\n').slice(1)) if(l.startsWith('📖')) btStory(l.replace('📖 ',''));
   for(const d of (r.drops||[])) toast('🎁 Drop: '+(ITEMS[d]?.nama||d)+'!');
   diveCdUntil=Date.now()+25000; render(); loadDungeons();
+}
+// story visual-novel: dialog box bawah layar, tap next
+let STORYQ = [];
+function btStory(line){ STORYQ.push(line); if(STORYQ.length===1) storyNext(); }
+function storyNext(){
+  const box = $('storyBox');
+  if(!STORYQ.length){ box.style.display='none'; return; }
+  $('storyText').textContent = STORYQ[0];
+  box.style.display='block';
+}
+async function instantRaid(){
+  const r=await api('dungeon',{instant:raidDg});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast('🎟️ '+r.msg); loadDungeons();
+}
+async function doPrestige(){
+  if(!confirm('♻️ PRESTIGE: level & gold RESET, tapi income +25% permanen. Lanjut?')) return;
+  const r = await api('prestige',{});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r.player); toast(r.msg);
 }
 
 // boss: turn-based — start → serang per klik → potion → flee
