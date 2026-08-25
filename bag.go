@@ -21,6 +21,9 @@ const (
 )
 
 func isEquipID(id string) bool {
+	if it, ok := ITEMS[id]; ok && (it.Kind == "wep" || it.Kind == "cap" || it.Kind == "hel" || it.Kind == "boo" || it.Kind == "arm") {
+		return true
+	}
 	for _, p := range []string{"wep", "cap", "hel", "boo", "arm"} {
 		if len(id) >= 3 && id[:3] == p {
 			return true
@@ -92,6 +95,15 @@ func addItemSrv(inv map[string]any, id string, qty int) bool {
 
 func bagHasRoom(p *Player) bool {
 	return bagUsed(normInv(p.Data["inv"])) < bagSlots(p.Data)
+}
+
+// cek ruang dari inv yang sudah dinormalisasi (dipakai redeem: jangan save setengah2)
+func bagHasRoomI(inv map[string]any) bool {
+	lv := 0
+	if f, ok := inv["_bag_lv"].(float64); ok {
+		lv = int(f)
+	}
+	return bagUsed(inv) < bagBase+lv*bagPerLv
 }
 
 // POST /api/bag {action:"upgrade"} — beli slot tas dengan gold

@@ -217,18 +217,15 @@ func handleRedeem(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]string{"err": "item di kode gak ada"})
 			return
 		}
-		if isEquipID(itemID) {
-			for i := 0; i < qty; i++ {
-				if !bagHasRoom(p) {
-					break
-				}
-				inv := normInv(p.Data["inv"])
-				addItemSrv(inv, itemID, 1)
-				p.Data["inv"] = inv
-			}
-		} else {
-			addItemSrvInv(p, itemID, qty)
+		inv := normInv(p.Data["inv"])
+		inv["_bag_lv"] = p.Data["bag_lv"] // utk cek slot di bagHasRoomI
+		if !bagHasRoomI(inv) {
+			writeJSON(w, 400, map[string]string{"err": "tas penuh! kosongin/jual item atau upgrade tas, lalu tukar lagi (kode belum terpakai kok)"})
+			return
 		}
+		addItemSrv(inv, itemID, qty)
+		delete(inv, "_bag_lv")
+		p.Data["inv"] = inv
 		msg = "🎁 " + it.Nama + " ×" + itoa(qty)
 	}
 	savePlayerData(p)
