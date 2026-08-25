@@ -74,6 +74,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <button class="ghost tabbtn" onclick="showTab('forge')" id="tab_forge">🔨</button>
     <button class="ghost tabbtn" onclick="showTab('shop')" id="tab_shop">🏪</button>
     <button class="ghost tabbtn" onclick="showTab('mine')" id="tab_mine">🏔️</button>
+    <button class="ghost tabbtn" onclick="showTab('journey')" id="tab_journey">🧭</button>
   </div>
   <style>.tabbtn{flex:1;min-width:44px;padding:9px 0;font-size:1.05rem;text-align:center}.tabbtn.active{background:#c9a227;color:#111;border-color:#f5c542}</style>
 
@@ -144,6 +145,10 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
       <button class="ghost" style="padding:5px 10px;color:#7ec850" onclick="buyHerbal('potion_besar')">🌿12</button></div>
     </div>
     <div class="dsub" id="herbalCount" style="margin-top:10px"></div>
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div><b>🍞 Roti Panggang (bekal)</b><div class="dsub">Craft: 🌿3 + 🟫2 · buat ekspedisi</div></div>
+      <button class="ghost" style="padding:5px 10px;color:#7ec850" onclick="craftBekal()">🍳 Masak</button>
+    </div>
   </div>
 
 <!-- 🏔️ TAMBANG — sewa penambang -->
@@ -179,6 +184,15 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
       <button id="btnHire" onclick="hireMiners()" style="width:100%;padding:10px">⛏️ SEWA PENAMBANG</button>
       <div id="mineCost" class="dsub" style="margin-top:6px;text-align:center"></div>
     </div>
+  </div>
+
+<!-- 🧭 JOURNEY — ekspedisi survival -->
+  <div id="pane_journey" class="pane dungeon" style="display:none;text-align:left">
+    <div class="dname">🧭 Ekspedisi</div>
+    <div class="dsub">Party berangkat real-time. Bekal: 🍞1 + 🧪1 per jeda makan — habis = HP gerus! Cooking bikin bekal lebih awet.</div>
+    <div id="jrnActive" class="dsub" style="margin:8px 0;color:#f5c542"></div>
+    <div id="jrnList"></div>
+    <div class="dsub" id="jrnLogBox" style="margin-top:10px"></div>
   </div>
 
   <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
@@ -452,7 +466,7 @@ setInterval(()=>{
 
 // ---------- TAB & AKTIVITAS (fase 2.5) ----------
 function showTab(t){
-  for(const x of ['garden','dungeon','boss','dojo','forge','shop','mine']){
+  for(const x of ['garden','dungeon','boss','dojo','forge','shop','mine','journey']){
     $('pane_'+x).style.display = x===t?'block':'none';
     $('tab_'+x).classList.toggle('active', x===t);
   }
@@ -461,13 +475,16 @@ function showTab(t){
   if(t==='boss') loadBosses();
   if(t==='dojo') loadSkills();
   if(t==='forge') loadForge();
-  if(t==='shop') loadShop();
+  // shop dirender oleh render() (statis + herbalCount)
   if(t==='mine') mineRefresh();
+  if(t==='journey') loadJourney();
 }
 
 // dojo: latihan skill
+let SKILL_CACHE = null;
 async function loadSkills(){
-  const list=await fetch('/api/skills',{headers:{Authorization:token}}).then(x=>x.json());
+  const list = await fetch('/api/skills',{headers:{Authorization:token}}).then(x=>x.json());
+  SKILL_CACHE = list;
   $('skillList').innerHTML=list.map(s=>`
     <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-bottom:8px">
       <div class="dname" style="font-size:1rem">${s.nama} <span style="color:#c9a227">Lv.${s.lv}/${s.max}</span></div>
@@ -694,7 +711,12 @@ async function buy(item){
 async function buyHerbal(item){
   const r = await api('shop',{item, pay:'herbal'});
   if(r.err) return toast('❌ '+r.err);
-  applyPlayer(r); toast('⚗️ '+(ITEMS[item]?.nama||item)+' dibuat dari herbal ✅');
+  applyPlayer(r); toast('⚗️ '+(ITEMS[item]?.nama||item)+' jadi!');
+}
+async function craftBekal(){
+  const r = await api('shop',{item:'bekal', pay:'craft'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast(r.msg); render(); // herbalCount ke-refresh di render()
 }
 
 // TAMBANG — sewa penambang
@@ -761,6 +783,51 @@ async function mineRefresh(){ // fetch state server dulu biar pending/tick up-to
 setInterval(()=>{
   if($('pane_mine')?.style.display!=='block' || !S || !S.data) return;
   mineRefresh();
+},10000);
+// ---------- 🧭 JOURNEY ----------
+const JOURNEYS = [
+  {id:'j_hutan', nama:'🌲 Hutan Kabut', menit:15, min_lvl:1, gold_min:800, gold_max:1500, drop_pct:35},
+  {id:'j_lembah', nama:'🏔️ Lembah Pasir Berbisik', menit:30, min_lvl:8, gold_min:2500, gold_max:5000, drop_pct:55},
+  {id:'j_reruntuhan', nama:'🏚️ Reruntuhan Kuno', menit:60, min_lvl:15, gold_min:7000, gold_max:14000, drop_pct:75},
+];
+let JRN_CACHE = null;
+async function loadJourney(){
+  if(!S||!S.data) return;
+  if(!JRN_CACHE) JRN_CACHE = await fetch('/api/journey',{method:'POST',headers:{'Content-Type':'application/json',Authorization:token},body:'{}'}).then(x=>x.json());
+  const act = JRN_CACHE.active;
+  const lvl = S.data.hero?.lvl||1;
+  const st = S.data.inv?.stack||{};
+  const bekal = st.bekal||0, pot = st.potion_kecil||0;
+  // ekspedisi aktif → countdown
+  if(act){
+    const left = Math.max(0, act.left||0);
+    $('jrnActive').textContent = `🧭 Di jalan: sisa ${Math.floor(left/60)}m ${left%60}s…`;
+    $('jrnList').innerHTML = '';
+  } else {
+    $('jrnActive').textContent = '';
+    $('jrnList').innerHTML = JOURNEYS.map(j=>{
+      const cookLv = ((S.data.skills||{}).cooking)||0;
+      const eats = Math.floor(j.menit*60/(5*60/(1+0.15*cookLv)))+1;
+      const okLvl = lvl>=j.min_lvl, okBekal = bekal>=eats && pot>=eats;
+      const lock = !okLvl ? `🔒 Lv.${j.min_lvl}` : (!okBekal ? `🍞${eats}+🧪${eats} kurang` : '');
+      return `<div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div><b>${j.nama}</b><div class="dsub">⏱️ ${j.menit}m · 🍞+🧪 ×${eats} · 💰~${(j.gold_min/1000).toFixed(1)}rb-${(j.gold_max/1000).toFixed(1)}rb · drop ${j.drop_pct}%</div></div>
+        <button ${lock?'disabled style="padding:8px 12px;opacity:.45"':'style="padding:8px 12px"'} onclick="startJourney('${j.id}')">${lock||'Berangkat'}</button>
+      </div>`;
+    }).join('');
+  }
+  const log = JRN_CACHE.log||[];
+  $('jrnLogBox').innerHTML = log.length ? '<b>📜 Log Ekspedisi</b><br>'+log.slice().reverse().map(t=>`<div>• ${t}</div>`).join('') : '';
+}
+async function startJourney(id){
+  const r = await api('journey',{action:'start', id});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast(r.msg); JRN_CACHE=null; loadJourney();
+}
+// poll journey saat tab kebuka & ada ekspedisi aktif
+setInterval(()=>{
+  if($('pane_journey')?.style.display!=='block' || !S || !S.data) return;
+  fetch('/api/journey',{method:'POST',headers:{'Content-Type':'application/json',Authorization:token},body:'{}'}).then(x=>x.json()).then(d=>{ JRN_CACHE=d; loadJourney(); }).catch(()=>null);
 },10000);
 // update cost实时 saat input berubah
 document.addEventListener('input', e=>{

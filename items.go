@@ -49,6 +49,9 @@ var ITEMS = map[string]Item{
 	// ---- POTION (stack) ----
 	"potion_kecil": {"potion_kecil", "🧪 Potion HP Kecil", "pot", "common", "", 0, 0, 30, nil, 50},
 	"potion_besar": {"potion_besar", "🧴 Potion HP Besar", "pot", "common", "", 0, 0, 80, nil, 180},
+
+	// ---- BEKAL JOURNEY ----
+	"bekal": {"bekal", "🍞 Roti Panggang (bekal)", "mat", "common", "", 0, 0, 0, nil, 40},
 }
 
 var RARITY_COLOR = map[string]string{

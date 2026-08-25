@@ -68,6 +68,7 @@ func main() {
 	mux.HandleFunc("/api/upgrade", auth(handleUpgrade))
 	mux.HandleFunc("/api/sell", auth(handleSell))
 	mux.HandleFunc("/api/mine", auth(handleMine))
+	mux.HandleFunc("/api/journey", auth(handleJourney))
 
 	addr := ":30512"
 	log.Println("Dungeon Party listening on", addr)
@@ -179,6 +180,7 @@ func loadPlayer(pid int64) (*Player, error) {
 	applyRegen(p) // HP regen pasca-pertarungan (1%/3s)
 	raidTick(p)   // auto raid: XP+drop otomatis selama raid_on
 	mineTick(p)   // tambang: sewa penambang → besi+stone pasif
+	jrnTick(p)    // journey: ekspedisi real-time + kelaparan
 	return p, nil
 }
 

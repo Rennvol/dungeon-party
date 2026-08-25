@@ -104,6 +104,39 @@ func handleShop(w http.ResponseWriter, r *http.Request) {
 		Pay  string `json:"pay"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
+
+	// 🍞 craft bekal — cek SEBELUM lookup SHOP (bekal gak dijual gold)
+	if req.Item == "bekal" && req.Pay == "craft" {
+		p, err := loadPlayer(pid)
+		if err != nil {
+			writeJSON(w, 500, map[string]string{"err": "gak ada"})
+			return
+		}
+		inv := normInv(p.Data["inv"])
+		st, _ := inv["stack"].(map[string]any)
+		hb, _ := st["herbal"].(float64)
+		kl, _ := st["kulit_goblin"].(float64)
+		if hb < 3 || kl < 2 {
+			writeJSON(w, 400, map[string]string{"err": "butuh 🌿3 + 🟫2 buat 1 bekal"})
+			return
+		}
+		st["herbal"] = hb - 3
+		if st["herbal"].(float64) <= 0 {
+			delete(st, "herbal")
+		}
+		st["kulit_goblin"] = kl - 2
+		if st["kulit_goblin"].(float64) <= 0 {
+			delete(st, "kulit_goblin")
+		}
+		bonus := 1 + cookLvOf(p)/3 // cooking bikin adonan efisien
+		addItemSrv(inv, "bekal", bonus)
+		p.Data["inv"] = inv
+		savePlayerData(p)
+		writeJSON(w, 200, map[string]any{"player": p,
+			"msg": "🍞 Masak " + itoa(bonus) + " bekal! (cooking lv." + itoa(cookLvOf(p)) + ")"})
+		return
+	}
+
 	item, ok := SHOP[req.Item]
 	if !ok {
 		// list shop
