@@ -146,6 +146,25 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <div class="dsub" id="herbalCount" style="margin-top:10px"></div>
   </div>
 
+<!-- 🏔️ TAMBANG — sewa penambang -->
+  <div id="pane_mine" class="pane dungeon" style="display:none;text-align:left">
+    <div class="dname">🏔️ Tambang</div>
+    <div class="dsub">Sewa penambang NPC → ⛏️ Bijih Besi + 🪨 Forge Stone pasif. Bisa di-stack banyak & lama.</div>
+    <div id="mineInfo" class="dsub" style="margin:8px 0;color:#f5c542"></div>
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:10px">
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span>👷 Penambang</span>
+        <input id="mineCount" type="number" min="1" max="100" value="1" style="width:70px;padding:6px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:6px;text-align:center">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span>⏳ Durasi (jam)</span>
+        <input id="mineHours" type="number" min="1" max="100" value="1" style="width:70px;padding:6px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:6px;text-align:center">
+      </div>
+      <button id="btnHire" onclick="hireMiners()" style="width:100%;padding:10px">⛏️ SEWA PENAMBANG</button>
+      <div id="mineCost" class="dsub" style="margin-top:6px;text-align:center"></div>
+    </div>
+  </div>
+
   <button id="btnChoose" style="display:none" onclick="showClasses()">Pilih Hero</button>
   <div id="classList"></div>
   <div class="dungeon" id="bagBox" style="display:none">
@@ -158,19 +177,6 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   <div class="log" id="log"></div>
 </div>
 
-<!-- 🏔️ TAMBANG — sewa penambang -->
-<div id="pane_mine" class="pane dungeon" style="display:none;text-align:left">
-  <div class="dname">🏔️ Tambang</div>
-  <div class="dsub">Sewa penambang NPC → ⛏️ Bijih Besi + 🪨 Forge Stone pasif. Bisa di-stack banyak & lama.</div>
-  <div id="mineInfo" class="dsub" style="margin:8px 0;color:#f5c542"></div>
-  <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
-    <span>👷 Jumlah:</span>
-    <input id="mineCount" type="number" min="1" max="100" value="1" style="width:60px;padding:4px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:4px">
-    <span>⏳ Jam:</span>
-    <input id="mineHours" type="number" min="1" max="100" value="1" style="width:60px;padding:4px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:4px">
-  </div>
-  <button id="btnHire" onclick="hireMiners()" style="width:100%;padding:10px">⛏️ SEWA PENAMBANG</button>
-  <div id="mineCost" class="dsub" style="margin-top:4px"></div>
 </div>
 
 <!-- Modal detail hero + konfirmasi -->
