@@ -149,9 +149,25 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
 <!-- 🏔️ TAMBANG — sewa penambang -->
   <div id="pane_mine" class="pane dungeon" style="display:none;text-align:left">
     <div class="dname">🏔️ Tambang</div>
-    <div class="dsub">Sewa penambang NPC → ⛏️ Bijih Besi + 🪨 Forge Stone pasif. Bisa di-stack banyak & lama.</div>
+    <div class="dsub">Sewa penambang NPC → hasil numpuk di penampungan, tekan 🧺 PANEN buat ngambil. 📐 Upgrade Scope buat rate & kapasitas lebih gede.</div>
     <div id="mineInfo" class="dsub" style="margin:8px 0;color:#f5c542"></div>
-    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:10px">
+
+    <!-- penampungan + panen -->
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div><b>🪣 Penampungan</b><div class="dsub" id="pendInfo">kosong</div></div>
+        <button id="btnCollect" onclick="collectMine()" style="padding:8px 14px">🧺 PANEN 50%</button>
+      </div>
+    </div>
+
+    <!-- upgrade scope -->
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div><b>📐 Scope <span id="scopeLv">Lv.1</span></b><div class="dsub">Rate & kapasitas penampungan ×level</div></div>
+      <button id="btnMineUp" onclick="upgradeMine()" style="padding:8px 12px">Upgrade</button>
+    </div>
+
+    <!-- sewa penambang -->
+    <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px">
       <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px">
         <span>👷 Penambang</span>
         <input id="mineCount" type="number" min="1" max="100" value="1" style="width:70px;padding:6px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:6px;text-align:center">
@@ -446,7 +462,7 @@ function showTab(t){
   if(t==='dojo') loadSkills();
   if(t==='forge') loadForge();
   if(t==='shop') loadShop();
-  if(t==='mine') loadMine();
+  if(t==='mine') mineRefresh();
 }
 
 // dojo: latihan skill
@@ -692,13 +708,38 @@ async function loadMine(){
   const m = (S.data.mine||{count:0,until:0});
   const cnt = m.count||0;
   const left = cnt>0 ? Math.max(0, Math.ceil((m.until - Date.now()/1000))) : 0;
-  const mm = Math.floor(left/60), ss = left%60;
+  const hh = Math.floor(left/3600), mm = Math.floor(left%3600/60);
   $('mineInfo').textContent = cnt>0
-    ? `⛏️ ${cnt} penambang aktif · sisa ${mm}m ${ss}s · +⛏️ Bijih & 🪨 Stone pasif`
+    ? `⛏️ ${cnt} penambang aktif · sisa ${hh}j ${mm}m`
     : 'Tidak ada penambang disewa.';
+  // penampungan
+  const scope = Math.max(1, Math.floor(S.data.mine_scope||1));
+  const cap = 300*scope;
+  const pend = m.pend||0, st = m.pend_stone||0;
+  $('pendInfo').innerHTML = `⛏️ Bijih: <b>${Math.floor(pend)}</b>/${cap}${st>0?` · 🪨 Stone: <b>${Math.floor(st)}</b>`:''}`;
+  const empty = pend < 2 && st < 1;
+  $('btnCollect').disabled = empty;
+  $('btnCollect').style.opacity = empty ? .45 : 1;
+  // scope upgrade
+  const upCost = 300*scope*scope;
+  $('scopeLv').textContent = 'Lv.'+scope;
+  $('btnMineUp').textContent = `Upgrade (${upCost.toLocaleString('id')}g)`;
+  $('btnMineUp').disabled = gold < upCost;
+  $('btnMineUp').style.opacity = gold < upCost ? .45 : 1;
+  // sewa
   $('mineCost').textContent = `💰 Biaya: ${mineCost().toLocaleString('id')}g (${mineCost()/50|0} jam-penambang)`;
   $('btnHire').disabled = gold < mineCost();
   $('btnHire').style.opacity = gold < mineCost() ? .45 : 1;
+}
+async function collectMine(){
+  const r = await api('mine',{action:'collect'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast(r.msg); loadMine();
+}
+async function upgradeMine(){
+  const r = await api('mine',{action:'upgrade'});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast(r.msg); loadMine();
 }
 async function hireMiners(){
   const c = Math.max(1, +$('mineCount').value||1);
@@ -707,6 +748,17 @@ async function hireMiners(){
   if(r.err) return toast('❌ '+r.err);
   applyPlayer(r); toast(r.msg); loadMine();
 }
+async function mineRefresh(){ // fetch state server dulu biar pending/tick up-to-date
+  if(!S) return;
+  const d = await fetch('/api/state',{headers:{Authorization:token}}).then(x=>x.json()).catch(()=>null);
+  if(d && d.data){ S=d; S._syncedGold=d.gold; gold=d.gold; }
+  loadMine();
+}
+// poll tambang: saat tab terlihat, refresh tiap 10s → mineTick jalan + pending update live
+setInterval(()=>{
+  if($('pane_mine')?.style.display!=='block' || !S || !S.data) return;
+  mineRefresh();
+},10000);
 // update cost实时 saat input berubah
 document.addEventListener('input', e=>{
   if(e.target.id==='mineCount' || e.target.id==='mineHours'){

@@ -17,12 +17,17 @@ import (
 //   harga = 50 gold × jumlah × (durasi_jam)
 
 const (
-	mineRateOrePerSec = 0.15
+	mineRateOrePerSec  = 0.15
 	mineStonePctPerMin = 8
 	mineCostPerMinerHr = 50 // gold per penambang per jam
 	mineMaxMiners      = 100
 	mineMaxHours       = 100
+	mineCapBase        = 300 // kapasitas penampungan × scope_lv
 )
+
+// 📐 Scope: upgrade rate & kapasitas penampungan
+func mineUpCost(scopeLv int) int { return 300 * scopeLv * scopeLv }
+func mineCap(scopeLv int) float64 { return float64(mineCapBase) * float64(scopeLv) }
 
 // POST /api/mine {action:"hire", count, hours} | {action:"status"}
 func handleMine(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +79,51 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 		savePlayerData(p)
 		writeJSON(w, 200, map[string]any{"player": p,
 			"msg": "⛏️ Nyewa " + itoa(req.Count) + " penambang " + itoa(req.Hours) + " jam! Mereka nambang otomatis."})
+	case "collect":
+		// ambil 50% penampungan (dibulatkan) — sisanya tetap nambang
+		m := normMine(p.Data["mine"])
+		pend := toFv(m["pend"])
+		stones := toFv(m["pend_stone"])
+		ore := int(pend / 2)
+		st := int(stones / 2)
+		if pend < 2 && stones < 1 {
+			writeJSON(w, 400, map[string]string{"err": "penampungan masih kosong — tunggu penambang bekerja dulu"})
+			return
+		}
+		if ore > 0 {
+			addItemSrvInv(p, "bijih_besi", ore)
+		}
+		if st > 0 {
+			addItemSrvInv(p, "forge_stone", st)
+		}
+		m["pend"] = pend - float64(ore)
+		m["pend_stone"] = stones - float64(st)
+		p.Data["mine"] = m
+		savePlayerData(p)
+		writeJSON(w, 200, map[string]any{"player": p,
+			"msg": "🧺 Panen " + itoa(ore) + " Bijih Besi" + func() string {
+			if st > 0 {
+				return " + " + itoa(st) + " Forge Stone!"
+			}
+			return "!"
+		}()})
+	case "upgrade":
+		// 📐 upgrade scope: rate ×scope & kapasitas penampungan ×scope
+		scope := 1
+		if v := p.Data["mine_scope"]; v != nil {
+			scope = int(toFv(v))
+		}
+		cost := int64(mineUpCost(scope))
+		if p.Gold < cost {
+			writeJSON(w, 400, map[string]string{"err": "gold kurang (butuh " + itoa(int(cost)) + ")"})
+			return
+		}
+		p.Gold -= cost
+		scope++
+		p.Data["mine_scope"] = float64(scope)
+		savePlayerData(p)
+		writeJSON(w, 200, map[string]any{"player": p,
+			"msg": "📐 Scope naik ke Lv." + itoa(scope) + "! Rate nambang & kapasitas penampungan meningkat."})
 	default:
 		m := normMine(p.Data["mine"])
 		writeJSON(w, 200, map[string]any{"player": p, "mine": m})
@@ -97,17 +147,22 @@ func normMine(v any) map[string]any {
 	return m
 }
 
-// mineTick: akumulasi besi + chance stone tiap loadPlayer selama masa sewa.
+// mineTick: akumulasi hasil ke PENAMPUNGAN (cap), bukan langsung masuk tas.
+// Player tekan PANEN buat ambil 50% penampungan.
 func mineTick(p *Player) {
 	m := normMine(p.Data["mine"])
 	cnt := toFv(m["count"])
 	if cnt <= 0 {
 		return
 	}
+	scope := 1
+	if v := p.Data["mine_scope"]; v != nil {
+		scope = int(toFv(v))
+	}
 	now := float64(time.Now().Unix())
 	until := toFv(m["until"])
 	if now >= until {
-		m["count"] = 0.0 // sewa habis
+		m["count"] = 0.0 // sewa habis — hasil tetap aman di penampungan
 		p.Data["mine"] = m
 		return
 	}
@@ -119,17 +174,23 @@ func mineTick(p *Player) {
 	if elapsed <= 0 {
 		return
 	}
-	ore := int(elapsed * mineRateOrePerSec * cnt)
-	if ore > 0 {
-		addItemSrvInv(p, "bijih_besi", ore)
-	}
+	capv := mineCap(scope)
+	ore := elapsed * mineRateOrePerSec * float64(scope) * cnt
+	m["pend"] = minFloat(toFv(m["pend"])+ore, capv)
 	// chance stone: 8%/penambang/menit
 	rolls := int(elapsed / 60 * cnt)
 	for i := 0; i < rolls; i++ {
 		if rand.Intn(100) < mineStonePctPerMin {
-			addItemSrvInv(p, "forge_stone", 1)
+			m["pend_stone"] = toFv(m["pend_stone"]) + 1
 		}
 	}
 	m["at"] = now
 	p.Data["mine"] = m
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
