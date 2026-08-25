@@ -17,17 +17,18 @@ import (
 //   harga = 50 gold × jumlah × (durasi_jam)
 
 const (
-	mineRateOrePerSec  = 0.15
-	mineStonePctPerMin = 8
-	mineCostPerMinerHr = 50 // gold per penambang per jam
-	mineMaxMiners      = 100
-	mineMaxHours       = 100
-	mineCapBase        = 300 // kapasitas penampungan × scope_lv
+	mineRateOrePerSec   = 0.15
+	mineStonePctPerMin  = 8
+	mineCostPerMinerHr  = 50 // gold per penambang per jam
+	mineMaxMinersBase   = 10 // max penambang × scope_lv
+	mineMaxHours        = 100
+	mineCapBase         = 300 // kapasitas penampungan × scope_lv
 )
 
-// 📐 Scope: upgrade rate & kapasitas penampungan
+// 📐 Scope: upgrade rate, kapasitas penampungan, & max penambang
 func mineUpCost(scopeLv int) int { return 300 * scopeLv * scopeLv }
 func mineCap(scopeLv int) float64 { return float64(mineCapBase) * float64(scopeLv) }
+func mineMaxMiners(scopeLv int) int { return 10 * scopeLv }
 
 // POST /api/mine {action:"hire", count, hours} | {action:"status"}
 func handleMine(w http.ResponseWriter, r *http.Request) {
@@ -51,8 +52,14 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Action {
 	case "hire":
-		if req.Count < 1 || req.Count > mineMaxMiners {
-			writeJSON(w, 400, map[string]string{"err": "jumlah 1-" + itoa(mineMaxMiners)})
+		scopeNow := 1
+		if v := p.Data["mine_scope"]; v != nil {
+			scopeNow = int(toFv(v))
+		}
+		cur := int(toFv(normMine(p.Data["mine"])["count"]))
+		maxM := mineMaxMiners(scopeNow)
+		if req.Count < 1 || cur+req.Count > maxM {
+			writeJSON(w, 400, map[string]string{"err": "max penambang " + itoa(maxM) + " (scope Lv." + itoa(scopeNow) + ") — 📐 upgrade scope buat nambah"})
 			return
 		}
 		if req.Hours < 1 || req.Hours > mineMaxHours {
@@ -67,10 +74,10 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 		p.Gold -= cost
 		m := normMine(p.Data["mine"])
 		now := float64(time.Now().Unix())
-		// stack: perpanjang until & tambah count
+		// stack: tambah count; durasi = sisa sewa lama + jam baru (bukan akumulasi total)
 		until := now + float64(req.Hours)*3600
-		if m["until"].(float64) > now {
-			until = m["until"].(float64) + float64(req.Hours)*3600
+		if u, _ := m["until"].(float64); u > now {
+			until = u + float64(req.Hours)*3600
 		}
 		m["count"] = toFv(m["count"]) + float64(req.Count)
 		m["at"] = now
@@ -80,24 +87,24 @@ func handleMine(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"player": p,
 			"msg": "⛏️ Nyewa " + itoa(req.Count) + " penambang " + itoa(req.Hours) + " jam! Mereka nambang otomatis."})
 	case "collect":
-		// ambil 50% penampungan (dibulatkan) — sisanya tetap nambang
+		// ambil SEMUA isi penampungan (model herbal: yang terlihat = yang didapat)
 		m := normMine(p.Data["mine"])
 		pend := toFv(m["pend"])
 		stones := toFv(m["pend_stone"])
-		ore := int(pend / 2)
-		st := int(stones / 2)
-		if pend < 2 && stones < 1 {
+		if pend < 1 && stones < 1 {
 			writeJSON(w, 400, map[string]string{"err": "penampungan masih kosong — tunggu penambang bekerja dulu"})
 			return
 		}
+		ore := int(pend)
+		st := int(stones)
 		if ore > 0 {
 			addItemSrvInv(p, "bijih_besi", ore)
 		}
 		if st > 0 {
 			addItemSrvInv(p, "forge_stone", st)
 		}
-		m["pend"] = pend - float64(ore)
-		m["pend_stone"] = stones - float64(st)
+		m["pend"] = 0
+		m["pend_stone"] = 0
 		p.Data["mine"] = m
 		savePlayerData(p)
 		writeJSON(w, 200, map[string]any{"player": p,
@@ -186,6 +193,20 @@ func mineTick(p *Player) {
 	}
 	m["at"] = now
 	p.Data["mine"] = m
+	// 🤖 AUTO PANEN: penampungan penuh → semua hasil langsung masuk tas
+	if toFv(m["pend"]) >= capv {
+		oreAll := int(toFv(m["pend"]))
+		stAll := int(toFv(m["pend_stone"]))
+		if oreAll > 0 {
+			addItemSrvInv(p, "bijih_besi", oreAll)
+		}
+		if stAll > 0 {
+			addItemSrvInv(p, "forge_stone", stAll)
+		}
+		m["pend"] = 0
+		m["pend_stone"] = 0
+		p.Data["mine"] = m
+	}
 }
 
 func minFloat(a, b float64) float64 {

@@ -156,13 +156,13 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <div><b>🪣 Penampungan</b><div class="dsub" id="pendInfo">kosong</div></div>
-        <button id="btnCollect" onclick="collectMine()" style="padding:8px 14px">🧺 PANEN 50%</button>
+        <button id="btnCollect" onclick="collectMine()" style="padding:8px 14px">🧺 AMBIL SEMUA</button>
       </div>
     </div>
 
     <!-- upgrade scope -->
     <div style="border:1px solid #2a3a4a;border-radius:10px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;gap:8px">
-      <div><b>📐 Scope <span id="scopeLv">Lv.1</span></b><div class="dsub">Rate & kapasitas penampungan ×level</div></div>
+      <div><b>📐 Scope <span id="scopeLv">Lv.1</span></b><div class="dsub">Rate, kapasitas & max penambang ×level</div></div>
       <button id="btnMineUp" onclick="upgradeMine()" style="padding:8px 12px">Upgrade</button>
     </div>
 
@@ -712,12 +712,12 @@ async function loadMine(){
   $('mineInfo').textContent = cnt>0
     ? `⛏️ ${cnt} penambang aktif · sisa ${hh}j ${mm}m`
     : 'Tidak ada penambang disewa.';
-  // penampungan
+  // penampungan (model herbal: yang terlihat = yang didapat)
   const scope = Math.max(1, Math.floor(S.data.mine_scope||1));
   const cap = 300*scope;
   const pend = m.pend||0, st = m.pend_stone||0;
-  $('pendInfo').innerHTML = `⛏️ Bijih: <b>${Math.floor(pend)}</b>/${cap}${st>0?` · 🪨 Stone: <b>${Math.floor(st)}</b>`:''}`;
-  const empty = pend < 2 && st < 1;
+  $('pendInfo').innerHTML = `⛏️ Bijih: <b>${Math.floor(pend)}</b>/${cap}${st>0?` · 🪨 Stone: <b>${Math.floor(st)}</b>`:''}${Math.floor(pend)>=cap?' · 🤖 auto-panen!':''}`;
+  const empty = pend < 1 && st < 1;
   $('btnCollect').disabled = empty;
   $('btnCollect').style.opacity = empty ? .45 : 1;
   // scope upgrade
@@ -726,7 +726,10 @@ async function loadMine(){
   $('btnMineUp').textContent = `Upgrade (${upCost.toLocaleString('id')}g)`;
   $('btnMineUp').disabled = gold < upCost;
   $('btnMineUp').style.opacity = gold < upCost ? .45 : 1;
-  // sewa
+  // sewa — max penambang ikut scope
+  const maxM = 10*scope;
+  $('mineCount').max = maxM;
+  if(+$('mineCount').value > maxM) $('mineCount').value = maxM;
   $('mineCost').textContent = `💰 Biaya: ${mineCost().toLocaleString('id')}g (${mineCost()/50|0} jam-penambang)`;
   $('btnHire').disabled = gold < mineCost();
   $('btnHire').style.opacity = gold < mineCost() ? .45 : 1;
