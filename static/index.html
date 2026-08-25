@@ -73,6 +73,7 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
     <button class="ghost tabbtn" onclick="showTab('dojo')" id="tab_dojo">🥋</button>
     <button class="ghost tabbtn" onclick="showTab('forge')" id="tab_forge">🔨</button>
     <button class="ghost tabbtn" onclick="showTab('shop')" id="tab_shop">🏪</button>
+    <button class="ghost tabbtn" onclick="showTab('mine')" id="tab_mine">🏔️</button>
   </div>
   <style>.tabbtn{flex:1;min-width:44px;padding:9px 0;font-size:1.05rem;text-align:center}.tabbtn.active{background:#c9a227;color:#111;border-color:#f5c542}</style>
 
@@ -157,6 +158,21 @@ button.ghost{background:transparent;color:#c9a227;border:1px solid #c9a227}
   <div class="log" id="log"></div>
 </div>
 
+<!-- 🏔️ TAMBANG — sewa penambang -->
+<div id="pane_mine" class="pane dungeon" style="display:none;text-align:left">
+  <div class="dname">🏔️ Tambang</div>
+  <div class="dsub">Sewa penambang NPC → ⛏️ Bijih Besi + 🪨 Forge Stone pasif. Bisa di-stack banyak & lama.</div>
+  <div id="mineInfo" class="dsub" style="margin:8px 0;color:#f5c542"></div>
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+    <span>👷 Jumlah:</span>
+    <input id="mineCount" type="number" min="1" max="100" value="1" style="width:60px;padding:4px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:4px">
+    <span>⏳ Jam:</span>
+    <input id="mineHours" type="number" min="1" max="100" value="1" style="width:60px;padding:4px;background:#221a2e;color:#e8e4d8;border:1px solid #3a2a4a;border-radius:4px">
+  </div>
+  <button id="btnHire" onclick="hireMiners()" style="width:100%;padding:10px">⛏️ SEWA PENAMBANG</button>
+  <div id="mineCost" class="dsub" style="margin-top:4px"></div>
+</div>
+
 <!-- Modal detail hero + konfirmasi -->
 <div class="modal" id="modal" onclick="if(event.target===this)mdClose()">
   <div class="card">
@@ -193,7 +209,7 @@ async function afterAuth(r){
   await loadState();
 }
 async function loadState(){
-  const r = await fetch('/api/state',{headers:{Authorization:token}}).then(r=>r.json());
+  const r = await fetch('/api/state',{headers:{Authorization:token}}).then(x=>x.json());
   if(r.err) return logout();
   S = r; S._syncedGold = r.gold; gold = r.gold;
   if(!ITEMS) ITEMS = await fetch('/api/items').then(x=>x.json()).then(l=>{const m={};l.forEach(i=>m[i.id]=i);return m;});
@@ -353,6 +369,7 @@ async function doForge(uid, stones){
   applyPlayer(r.player); toast(r.msg); loadForge();
 }
 function applyPlayer(p){ 
+  if(p && p.player) p = p.player; // terima envelope {msg,player} atau player langsung
   const heroLvl = S?.data?.hero?.lvl;
   S = p; S._syncedGold = p.gold; gold = p.gold; xpGain = 0; render(); 
 }
@@ -413,7 +430,7 @@ setInterval(()=>{
 
 // ---------- TAB & AKTIVITAS (fase 2.5) ----------
 function showTab(t){
-  for(const x of ['garden','dungeon','boss','dojo','forge','shop']){
+  for(const x of ['garden','dungeon','boss','dojo','forge','shop','mine']){
     $('pane_'+x).style.display = x===t?'block':'none';
     $('tab_'+x).classList.toggle('active', x===t);
   }
@@ -422,6 +439,8 @@ function showTab(t){
   if(t==='boss') loadBosses();
   if(t==='dojo') loadSkills();
   if(t==='forge') loadForge();
+  if(t==='shop') loadShop();
+  if(t==='mine') loadMine();
 }
 
 // dojo: latihan skill
@@ -454,14 +473,15 @@ async function refreshGarden(){
   $('btnGardenUp').disabled = gold < upCost;
   $('btnGardenUp').style.opacity = gold < upCost ? .45 : 1;
 }
-function gardenLv(){ return Math.max(1, Math.floor(S.data.garden_lv||1)); }
+function gardenLv(){ if(!S||!S.data) return 1; return Math.max(1, Math.floor(S.data.garden_lv||1)); }
 function gardenUpCost(lv){ let c=150; for(let i=1;i<lv;i++) c=c*16/10|0; return c; }
 setInterval(()=>{
   if($('pane_garden')?.style.display!=='block'||!S) return;
+  const lv = gardenLv();
   const sec=(Date.now()-gardenBase.at)/1000;
-  const g=Math.floor(gardenBase.gold + sec*0.7*gardenBase.lv);
+  const g=Math.floor(gardenBase.gold + sec*0.7*lv);
   const h=Math.floor(gardenBase.herbs + sec/45);
-  $('gardenInfo').innerHTML=`⏳ Menunggu panen: <b style="color:#f5c542">🪙 ${g.toLocaleString('id')}</b> + 🌿 ${h} Herbal`;
+  $('gardenInfo').innerHTML=`⏳ Lv.${lv} · Menunggu panen: <b style="color:#f5c542">🪙 ${g.toLocaleString('id')}</b> + 🌿 ${h} Herbal`;
 },1000);
 async function harvest(){
   const r=await api('garden',{action:'collect'});
@@ -477,6 +497,7 @@ async function gardenUpgrade(){
 // dungeon: pilih dungeon + auto raid (server-side)
 let DG_CACHE = null, raidDg = localStorage.getItem('dp_raid_dg') || 'gua_goblin';
 async function loadDungeons(){
+  if(!S||!S.data) return;
   if(!DG_CACHE) DG_CACHE = await fetch('/api/items?type=dungeons',{headers:{Authorization:token}}).then(x=>x.json());
   const lvl = S?.data?.hero?.lvl||1;
   const on = !!S.data.raid_on;
@@ -488,10 +509,7 @@ async function loadDungeons(){
       ${locked?'':`<button class="ghost" style="margin-top:6px;padding:4px 12px" onclick="pickDG('${d.id}')">${raidDg===d.id?'✅ dipilih':'pilih'}</button>`}
     </div>`;
   }).join('');
-  // log raid
-  const log = (S.data.raid_log||[]);
-  $('raidLogBox').style.display = log.length ? 'block' : 'none';
-  $('raidLog').innerHTML = log.slice().reverse().map(t=>`<div style="padding:2px 0;border-bottom:1px solid #241a30">${t}</div>`).join('');
+  renderRaidLog();
   $('btnDive').disabled = on; // auto raid aktif → manual gak perlu
   $('btnDive').style.opacity = on ? .4 : 1;
   const btn=$('btnRaid');
@@ -500,9 +518,16 @@ async function loadDungeons(){
   btn.style.color = on ? '#fff' : '';
   $('raidInfo').textContent = on ? `Party di ${DG_CACHE.find(d=>d.id===raidDg)?.nama||'?'} — XP & drop jalan otomatis. Panen/boss/tempa/toko terkunci!` : 'Auto raid mati — aktivitas bebas.';
 }
+function renderRaidLog(){
+  if(!S||!S.data) return;
+  const log = (S.data.raid_log||[]);
+  $('raidLogBox').style.display = log.length ? 'block' : 'none';
+  $('raidLog').innerHTML = log.slice().reverse().map(t=>`<div style="padding:2px 0;border-bottom:1px solid #241a30">${t}</div>`).join('');
+}
 function pickDG(id){ raidDg=id; localStorage.setItem('dp_raid_dg', id); loadDungeons(); }
 let raidPollTimer = null;
 async function toggleRaid(){
+  if(!S||!S.data) return;
   const r = await api('dungeon',{raid: S.data.raid_on?'off':'on', dive: raidDg});
   if(r.err) return toast('❌ '+r.err);
   applyPlayer(r.player); toast(r.msg); loadDungeons();
@@ -511,7 +536,7 @@ async function toggleRaid(){
     raidPollTimer = setInterval(async ()=>{
       if(!S.data.raid_on) { clearInterval(raidPollTimer); return; }
       const d = await fetch('/api/state',{headers:{Authorization:token}}).then(x=>x.json()).catch(()=>null);
-      if(d && d.data){ S=d; S._syncedGold=d.gold; gold=d.gold; if($('pane_dungeon').style.display==='block') loadDungeons(); render(); }
+      if(d && d.data){ S=d; S._syncedGold=d.gold; gold=d.gold; if($('pane_dungeon').style.display==='block') loadDungeons(); else renderRaidLog(); render(); }
     }, 8000);
   } else if(raidPollTimer){
     clearInterval(raidPollTimer); raidPollTimer=null;
@@ -649,6 +674,39 @@ async function buyHerbal(item){
   if(r.err) return toast('❌ '+r.err);
   applyPlayer(r); toast('⚗️ '+(ITEMS[item]?.nama||item)+' dibuat dari herbal ✅');
 }
+
+// TAMBANG — sewa penambang
+function mineCost(){
+  const c = Math.max(1, +$('mineCount').value||1);
+  const h = Math.max(1, +$('mineHours').value||1);
+  return c*h*50;
+}
+async function loadMine(){
+  if(!S||!S.data) return;
+  const m = (S.data.mine||{count:0,until:0});
+  const cnt = m.count||0;
+  const left = cnt>0 ? Math.max(0, Math.ceil((m.until - Date.now()/1000))) : 0;
+  const mm = Math.floor(left/60), ss = left%60;
+  $('mineInfo').textContent = cnt>0
+    ? `⛏️ ${cnt} penambang aktif · sisa ${mm}m ${ss}s · +⛏️ Bijih & 🪨 Stone pasif`
+    : 'Tidak ada penambang disewa.';
+  $('mineCost').textContent = `💰 Biaya: ${mineCost().toLocaleString('id')}g (${mineCost()/50|0} jam-penambang)`;
+  $('btnHire').disabled = gold < mineCost();
+  $('btnHire').style.opacity = gold < mineCost() ? .45 : 1;
+}
+async function hireMiners(){
+  const c = Math.max(1, +$('mineCount').value||1);
+  const h = Math.max(1, +$('mineHours').value||1);
+  const r = await api('mine',{action:'hire', count:c, hours:h});
+  if(r.err) return toast('❌ '+r.err);
+  applyPlayer(r); toast(r.msg); loadMine();
+}
+// update cost实时 saat input berubah
+document.addEventListener('input', e=>{
+  if(e.target.id==='mineCount' || e.target.id==='mineHours'){
+    if($('pane_mine').style.display==='block') loadMine();
+  }
+});
 
 if(token) loadState();
 </script>
