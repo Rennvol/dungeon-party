@@ -378,7 +378,7 @@ function isEquipped(uid){
 async function equipItem(uid){
   const r = await api('equip',{uid});
   if(r.err) return toast(r.err);
-  applyPlayer(r.player); toast('⚔️ Equipment terpasang!');
+  applyPlayer(r); toast('⚔️ Equipment terpasang!');
 }
 async function sellStack(id, qty){
   const r = await api('sell',{stack_id:id, qty});
