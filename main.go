@@ -71,6 +71,8 @@ func main() {
 	mux.HandleFunc("/api/mine", auth(handleMine))
 	mux.HandleFunc("/api/journey", auth(handleJourney))
 	mux.HandleFunc("/api/prestige", auth(handlePrestige))
+	mux.HandleFunc("/api/redeem", auth(handleRedeem))
+	mux.HandleFunc("/api/admin/codes", handleAdminCodes)
 
 	addr := ":30512"
 	log.Println("Dungeon Party listening on", addr)
@@ -102,6 +104,8 @@ func migrate() {
 			log.Fatal("migrate:", err)
 		}
 	}
+	// ---------- FASE 5 — tabel redeem ----------
+	migrateRedeem()
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
